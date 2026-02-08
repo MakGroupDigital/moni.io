@@ -23,33 +23,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (fbUser) {
         try {
           const userRef = doc(db, 'users', fbUser.uid);
-          const userDoc = await getDoc(userRef);
+          
+          // Créer un utilisateur minimal immédiatement
+          const minimalUser: AuthUser = {
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            displayName: fbUser.displayName || 'User',
+            photoURL: fbUser.photoURL || undefined,
+            moniNumber: `MN1000${Math.floor(Math.random() * 10000)}`,
+            balance: 0,
+            paypalBalance: 0,
+            createdAt: new Date()
+          };
 
-          let userData: AuthUser;
-
-          if (userDoc.exists()) {
-            // L'utilisateur existe déjà, utiliser ses données
-            userData = userDoc.data() as AuthUser;
-          } else {
-            // Créer un nouvel utilisateur
-            userData = {
-              uid: fbUser.uid,
-              email: fbUser.email || '',
-              displayName: fbUser.displayName || 'User',
-              photoURL: fbUser.photoURL || undefined,
-              moniNumber: `MN1000${Math.floor(Math.random() * 10000)}`,
-              balance: 0,
-              paypalBalance: 0,
-              createdAt: new Date()
-            };
-
-            // Sauvegarder le nouvel utilisateur dans Firestore
-            await setDoc(userRef, userData);
-          }
-
-          setUser(userData);
+          setUser(minimalUser);
           setFirebaseUser(fbUser);
           setLoading(false);
+
+          // Essayer de récupérer/créer le document utilisateur en arrière-plan
+          try {
+            const userDoc = await getDoc(userRef);
+
+            if (!userDoc.exists()) {
+              // Créer un nouvel utilisateur dans Firestore
+              await setDoc(userRef, minimalUser);
+            } else {
+              // Mettre à jour avec les données de Firestore
+              const userData = userDoc.data() as AuthUser;
+              setUser(userData);
+            }
+          } catch (firestoreError) {
+            console.warn('Firestore error (offline?):', firestoreError);
+            // Continuer avec l'utilisateur minimal
+          }
 
           // Écouter les changements du document utilisateur en temps réel
           const unsubscribeSnapshot = onSnapshot(
@@ -69,6 +75,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return unsubscribeSnapshot;
         } catch (error) {
           console.error('Error setting up user:', error);
+          // Créer un utilisateur minimal même en cas d'erreur
+          const minimalUser: AuthUser = {
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            displayName: fbUser.displayName || 'User',
+            photoURL: fbUser.photoURL || undefined,
+            moniNumber: `MN1000${Math.floor(Math.random() * 10000)}`,
+            balance: 0,
+            paypalBalance: 0,
+            createdAt: new Date()
+          };
+          setUser(minimalUser);
+          setFirebaseUser(fbUser);
           setLoading(false);
         }
       } else {
