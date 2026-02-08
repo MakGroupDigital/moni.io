@@ -1,0 +1,7 @@
+{
+  "name": "Moni.io - Digital Wallet",
+  "description": "A premium financial application featuring real-time tracking, PayPal integration, USSD support, and AI-powered financial insights.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
