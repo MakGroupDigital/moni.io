@@ -1,28 +1,25 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 @layer base {
   body {
-    @apply bg-moni-dark flex justify-center items-center min-h-screen m-0;
-  }
-
-  ::-webkit-scrollbar {
-    width: 0px;
-    background: transparent;
+    @apply bg-[#0a0e27] text-[#f5f7fa];
   }
 }
 
 @layer components {
-  .glass {
-    @apply bg-moni-card/80 backdrop-blur-xl;
+  .btn-primary {
+    @apply px-4 py-2 bg-[#00d4ff] text-[#0a0e27] rounded-lg font-semibold hover:opacity-90 transition-opacity;
   }
 
-  .card-gradient {
-    @apply bg-gradient-to-br from-moni-card to-moni-bg;
+  .btn-secondary {
+    @apply px-4 py-2 bg-transparent border border-[#00d4ff] text-[#00d4ff] rounded-lg font-semibold hover:bg-[#00d4ff]/10 transition-colors;
   }
 
-  .paypal-gradient {
-    @apply bg-gradient-to-r from-blue-900 to-blue-600;
+  .card {
+    @apply bg-[#0a0e27] border border-[#8b92a9]/20 rounded-lg p-4;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-2 bg-[#0a0e27] border border-[#8b92a9]/30 rounded-lg text-[#f5f7fa] placeholder-[#8b92a9] focus:outline-none focus:border-[#00d4ff] transition-colors;
   }
 }

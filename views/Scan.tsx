@@ -56,24 +56,26 @@ const Scan: React.FC = () => {
         </div>
       </div>
 
-      <div className="p-10 bg-moni-bg flex justify-center gap-10">
-         <div 
-           onClick={() => setShowCamera(true)}
-           className="flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-         >
-            <div className="w-14 h-14 rounded-full bg-moni-card flex items-center justify-center text-xl text-moni-white">
-               <i className="fas fa-camera"></i>
-            </div>
-            <span className="text-[10px] text-moni-gray">Caméra</span>
-         </div>
-         <div 
-           onClick={() => setShowManualCode(true)}
-           className="flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-         >
-            <div className="w-14 h-14 rounded-full bg-moni-accent flex items-center justify-center text-xl text-moni-bg shadow-lg shadow-moni-accent/20">
-               <i className="fas fa-keyboard"></i>
-            </div>
-            <span className="text-[10px] text-moni-accent font-bold">Code</span>
+      <div className="p-10 bg-moni-bg flex justify-center items-center">
+         <div className="flex gap-10">
+           <div 
+             onClick={() => setShowCamera(true)}
+             className="flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+           >
+              <div className="w-14 h-14 rounded-full bg-moni-card flex items-center justify-center text-xl text-moni-white">
+                 <i className="fas fa-camera"></i>
+              </div>
+              <span className="text-[10px] text-moni-gray">Caméra</span>
+           </div>
+           <div 
+             onClick={() => setShowManualCode(true)}
+             className="flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+           >
+              <div className="w-14 h-14 rounded-full bg-moni-accent flex items-center justify-center text-xl text-moni-bg shadow-lg shadow-moni-accent/20">
+                 <i className="fas fa-keyboard"></i>
+              </div>
+              <span className="text-[10px] text-moni-accent font-bold">Code</span>
+           </div>
          </div>
       </div>
 

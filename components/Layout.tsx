@@ -63,11 +63,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentTab, onTabChange, depo
           <span className="text-[10px]">Stats</span>
         </button>
 
-        {/* Central Scan FAB Spacer */}
-        <div className="w-12"></div>
         <button 
           onClick={() => onTabChange(AppTab.SCAN)}
-          className="absolute left-1/2 -translate-x-1/2 -top-6 w-14 h-14 bg-moni-accent rounded-full flex items-center justify-center text-moni-bg text-2xl shadow-lg shadow-moni-accent/40 border-4 border-moni-bg transition-transform hover:scale-105 active:scale-95"
+          className="relative w-14 h-14 bg-moni-accent rounded-full flex items-center justify-center text-moni-bg text-2xl shadow-lg shadow-moni-accent/40 border-4 border-moni-bg transition-transform hover:scale-105 active:scale-95 -top-3"
         >
           <i className="fas fa-qrcode"></i>
         </button>
