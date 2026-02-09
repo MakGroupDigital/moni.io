@@ -48,12 +48,7 @@ END:VCARD`;
   };
 
   return (
-    <div className="w-[375px] h-[812px] bg-moni-bg rounded-[40px] shadow-2xl shadow-moni-accent/10 relative overflow-hidden flex flex-col border-[6px] border-[#162130]">
-      {/* Top Bar Decoration */}
-      <div className="absolute top-0 left-0 w-full h-8 flex justify-center items-end pointer-events-none z-50">
-        <div className="w-1/3 h-6 bg-[#162130] rounded-b-2xl"></div>
-      </div>
-
+    <div className="w-full h-screen bg-moni-bg relative overflow-hidden flex flex-col">
       {/* Content */}
       <div className="relative z-10 flex flex-col h-full px-6 pt-16 pb-10 overflow-y-auto">
         {/* Header */}

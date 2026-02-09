@@ -64,12 +64,7 @@ const Splash: React.FC<SplashProps> = ({ onComplete }) => {
   const currentFeature = features[step];
 
   return (
-    <div className="w-[375px] h-[812px] bg-gradient-to-b from-moni-dark to-moni-bg rounded-[40px] shadow-2xl shadow-moni-accent/10 relative overflow-hidden flex flex-col items-center justify-center border-[6px] border-[#162130]">
-      {/* Top Bar Decoration */}
-      <div className="absolute top-0 left-0 w-full h-8 flex justify-center items-end pointer-events-none z-50">
-        <div className="w-1/3 h-6 bg-[#162130] rounded-b-2xl"></div>
-      </div>
-
+    <div className="w-full h-screen bg-gradient-to-b from-moni-dark to-moni-bg relative overflow-hidden flex flex-col items-center justify-center">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-20 right-10 w-40 h-40 bg-moni-accent/10 rounded-full blur-3xl animate-pulse"></div>

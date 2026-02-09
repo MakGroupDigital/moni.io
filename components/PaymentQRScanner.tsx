@@ -146,7 +146,7 @@ const PaymentQRScanner: React.FC<PaymentQRScannerProps> = ({ onScan, onClose }) 
   };
 
   return (
-    <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-50 rounded-[40px] overflow-hidden">
+    <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 overflow-hidden">
       <div className="absolute top-4 right-4 z-10">
         <button
           onClick={closeScanner}
