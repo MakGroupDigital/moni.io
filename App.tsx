@@ -135,22 +135,19 @@ const AppContent: React.FC<{ currency: Currency; setCurrency: (c: Currency) => v
   };
 
   return (
-    <div className="md:flex md:items-center md:justify-center md:min-h-screen bg-moni-dark md:p-4">
-      <Layout 
-        currentTab={currentTab} 
-        onTabChange={setCurrentTab}
-        depositModal={<DepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} onDepositSuccess={() => setShowDepositModal(false)} />}
-        withdrawModal={<WithdrawModal isOpen={showWithdrawModal} onClose={() => setShowWithdrawModal(false)} onWithdrawSuccess={() => setShowWithdrawModal(false)} />}
-        paypalModal={<PayPalModal isOpen={showPayPalModal} onClose={() => setShowPayPalModal(false)} paypalBalance={145.00} />}
-        sendModal={<SendModal isOpen={showSendModal} onClose={() => setShowSendModal(false)} userBalance={user?.balance || 0} onSendSuccess={() => setShowSendModal(false)} />}
-        p2pModal={<P2PModal isOpen={showP2PModal} onClose={() => setShowP2PModal(false)} userBalance={user?.balance || 0} onP2PSuccess={() => setShowP2PModal(false)} />}
-        billsModal={<BillsModal isOpen={showBillsModal} onClose={() => setShowBillsModal(false)} userBalance={user?.balance || 0} onBillPaySuccess={() => setShowBillsModal(false)} />}
-        ussdModal={<USSDModal isOpen={showUSSDModal} onClose={() => setShowUSSDModal(false)} />}
-      >
-        {renderView()}
-      </Layout>
-      <NotificationCenter notifications={notifications} />
-    </div>
+    <Layout 
+      currentTab={currentTab} 
+      onTabChange={setCurrentTab}
+      depositModal={<DepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} onDepositSuccess={() => setShowDepositModal(false)} />}
+      withdrawModal={<WithdrawModal isOpen={showWithdrawModal} onClose={() => setShowWithdrawModal(false)} onWithdrawSuccess={() => setShowWithdrawModal(false)} />}
+      paypalModal={<PayPalModal isOpen={showPayPalModal} onClose={() => setShowPayPalModal(false)} paypalBalance={145.00} />}
+      sendModal={<SendModal isOpen={showSendModal} onClose={() => setShowSendModal(false)} userBalance={user?.balance || 0} onSendSuccess={() => setShowSendModal(false)} />}
+      p2pModal={<P2PModal isOpen={showP2PModal} onClose={() => setShowP2PModal(false)} userBalance={user?.balance || 0} onP2PSuccess={() => setShowP2PModal(false)} />}
+      billsModal={<BillsModal isOpen={showBillsModal} onClose={() => setShowBillsModal(false)} userBalance={user?.balance || 0} onBillPaySuccess={() => setShowBillsModal(false)} />}
+      ussdModal={<USSDModal isOpen={showUSSDModal} onClose={() => setShowUSSDModal(false)} />}
+    >
+      {renderView()}
+    </Layout>
   );
 };
 
