@@ -3,6 +3,9 @@ import { MoniUser, BluetoothMoniUser } from '../types';
 import BluetoothUserSelector from './BluetoothUserSelector';
 import { useAuth } from '../contexts/AuthContext';
 import { performTransfer } from '../lib/transactionUtils';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useNotificationContext } from '../contexts/NotificationContext';
 
 interface SendModalProps {
   isOpen: boolean;
@@ -15,11 +18,12 @@ type SendStep = 'method' | 'search' | 'confirm' | 'processing' | 'success' | 'er
 
 const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onSendSuccess }) => {
   const { user } = useAuth();
+  const { success, error } = useNotificationContext();
   const [step, setStep] = useState<SendStep>('method');
   const [moniNumber, setMoniNumber] = useState('');
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [recipient, setRecipient] = useState<MoniUser | BluetoothMoniUser | null>(null);
   const [showBluetoothSelector, setShowBluetoothSelector] = useState(false);
@@ -44,7 +48,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
     setMoniNumber('');
     setAmount('');
     setMessage('');
-    setError('');
+    setErrorMsg('');
     setRecipient(null);
     setIsProcessing(false);
     setShowBluetoothSelector(false);
@@ -57,54 +61,66 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
   };
 
   const handleSearchRecipient = async () => {
-    setError('');
+    setErrorMsg('');
 
     if (!moniNumber.trim()) {
-      setError('Veuillez entrer un numéro Moni');
+      setErrorMsg('Veuillez entrer un numéro Moni');
       return;
     }
 
     if (!validateMoniNumber(moniNumber)) {
-      setError('Format invalide. Le numéro doit commencer par MN1000');
+      setErrorMsg('Format invalide. Le numéro doit commencer par MN1000');
       return;
     }
 
     setIsProcessing(true);
 
-    // Simulation de la recherche du destinataire
-    setTimeout(() => {
-      // Mock recipient data
-      const mockRecipients: Record<string, MoniUser> = {
-        'MN10001': { moniNumber: 'MN10001', name: 'Fatou Ndiaye', avatar: 'https://picsum.photos/seed/fatou/200' },
-        'MN10002': { moniNumber: 'MN10002', name: 'Amadou Sow', avatar: 'https://picsum.photos/seed/amadou/200' },
-        'MN10003': { moniNumber: 'MN10003', name: 'Aïssatou Ba', avatar: 'https://picsum.photos/seed/aissatou/200' },
-      };
+    try {
+      // Chercher l'utilisateur dans Firestore par moniNumber
+      const q = query(
+        collection(db, 'users'),
+        where('moniNumber', '==', moniNumber)
+      );
 
-      if (mockRecipients[moniNumber]) {
-        setRecipient(mockRecipients[moniNumber]);
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data();
+        // Générer une image par défaut basée sur le nom ou le moniNumber
+        const defaultAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.displayName || 'User')}&background=00F5D4&color=050A10&bold=true`;
+        
+        setRecipient({
+          moniNumber: userData.moniNumber,
+          name: userData.displayName || 'Utilisateur',
+          avatar: userData.photoURL || defaultAvatar
+        });
         setStep('confirm');
       } else {
-        setError('Utilisateur non trouvé');
+        setErrorMsg('Utilisateur non trouvé');
       }
       setIsProcessing(false);
-    }, 1000);
+    } catch (err: any) {
+      console.error('Error searching recipient:', err);
+      setErrorMsg(err?.message || 'Erreur lors de la recherche. Veuillez réessayer.');
+      setIsProcessing(false);
+    }
   };
 
   const handleSendMoney = async () => {
-    setError('');
+    setErrorMsg('');
 
     if (!amount || parseFloat(amount) <= 0) {
-      setError('Veuillez entrer un montant valide');
+      setErrorMsg('Veuillez entrer un montant valide');
       return;
     }
 
     if (parseFloat(amount) > userBalance) {
-      setError('Solde insuffisant');
+      setErrorMsg('Solde insuffisant');
       return;
     }
 
     if (!user?.uid || !recipient) {
-      setError('Erreur: utilisateur ou destinataire non trouvé');
+      setErrorMsg('Erreur: utilisateur ou destinataire non trouvé');
       return;
     }
 
@@ -115,7 +131,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
       // Effectuer le transfert avec notification
       await performTransfer(
         user.uid,
-        recipient.moniNumber, // Utiliser le moniNumber comme ID du destinataire
+        recipient.moniNumber, // Passer le moniNumber du destinataire
         parseFloat(amount),
         'send',
         {
@@ -132,13 +148,16 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
         }
       );
 
+      // Afficher une notification de succès
+      success('Transfert réussi', `${amount}$ envoyés à ${recipient.name}`);
+
       setStep('success');
       setTimeout(() => {
         onSendSuccess?.();
         handleClose();
       }, 2000);
-    } catch (err) {
-      setError('Erreur lors du transfert. Veuillez réessayer.');
+    } catch (err: any) {
+      error('Erreur', 'Erreur lors du transfert. Veuillez réessayer.');
       setStep('confirm');
       console.error('Send error:', err);
     } finally {
@@ -209,7 +228,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
                 value={moniNumber}
                 onChange={(e) => {
                   setMoniNumber(e.target.value.toUpperCase());
-                  setError('');
+                  setErrorMsg('');
                 }}
                 placeholder="MN1000..."
                 className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent font-mono"
@@ -220,9 +239,9 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
               </p>
             </div>
 
-            {error && (
+            {errorMsg && (
               <div className="bg-red-500/20 border border-red-500 rounded-xl p-3 mb-4">
-                <p className="text-red-200 text-xs">{error}</p>
+                <p className="text-red-200 text-xs">{errorMsg}</p>
               </div>
             )}
 
@@ -264,7 +283,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
                   value={amount}
                   onChange={(e) => {
                     setAmount(e.target.value);
-                    setError('');
+                    setErrorMsg('');
                   }}
                   placeholder="0.00"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl pl-8 pr-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent text-lg"
@@ -305,9 +324,9 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
               </div>
             )}
 
-            {error && (
+            {errorMsg && (
               <div className="bg-red-500/20 border border-red-500 rounded-xl p-3 mb-4">
-                <p className="text-red-200 text-xs">{error}</p>
+                <p className="text-red-200 text-xs">{errorMsg}</p>
               </div>
             )}
 
@@ -318,7 +337,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
                   setAmount('');
                   setMessage('');
                   setRecipient(null);
-                  setError('');
+                  setErrorMsg('');
                 }}
                 className="flex-1 p-3 bg-moni-bg border border-white/10 rounded-xl text-moni-white font-semibold hover:bg-white/5 transition-all"
               >

@@ -1,6 +1,8 @@
 
 import React from 'react';
 import { AppTab } from '../types';
+import PersistentNotifications from './PersistentNotifications';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -16,6 +18,8 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, currentTab, onTabChange, depositModal, withdrawModal, paypalModal, sendModal, p2pModal, billsModal, ussdModal }) => {
+  const { user } = useAuth();
+
   return (
     <div className="w-[375px] h-[812px] bg-moni-bg rounded-[40px] shadow-2xl shadow-moni-accent/10 relative overflow-hidden flex flex-col border-[6px] border-[#162130]">
       {/* Top Bar Decoration */}
@@ -38,6 +42,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentTab, onTabChange, depo
         {p2pModal}
         {billsModal}
         {ussdModal}
+        <PersistentNotifications userId={user?.uid} />
       </div>
 
       {/* Bottom Navigation */}

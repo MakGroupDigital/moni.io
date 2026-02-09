@@ -35,12 +35,13 @@ export interface FirestoreTransaction {
 export interface Notification {
   id?: string;
   userId: string;
-  type: 'transfer-received' | 'p2p-received' | 'deposit-completed' | 'withdraw-completed' | 'bill-paid';
+  type: 'transfer-received' | 'p2p-received' | 'p2p-request' | 'deposit-completed' | 'withdraw-completed' | 'bill-paid';
   title: string;
   message: string;
   amount?: number;
   senderName?: string;
   senderMoniNumber?: string;
+  senderId?: string;
   timestamp: Date;
   read: boolean;
   actionRequired: boolean;
@@ -114,6 +115,7 @@ export interface P2PRequest {
   id: string;
   senderId: string;
   senderName: string;
+  senderMoniNumber?: string;
   amount: number;
   status: 'pending' | 'accepted' | 'rejected';
   timestamp: Date;

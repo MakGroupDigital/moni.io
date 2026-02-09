@@ -34,12 +34,23 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
         // Déterminer si c'est une transaction positive ou négative
         const isPositive = ['deposit', 'receive', 'p2p-receive'].includes(txType);
         
+        // Convertir le timestamp Firestore en Date
+        let dateObj: Date;
+        if (data.timestamp?.toDate) {
+          // C'est un Firestore Timestamp
+          dateObj = data.timestamp.toDate();
+        } else if (data.timestamp instanceof Date) {
+          dateObj = data.timestamp;
+        } else {
+          dateObj = new Date(data.timestamp);
+        }
+
         txs.push({
           id: doc.id,
           title: data.title,
           description: data.description,
           amount: data.amount,
-          date: new Date(data.timestamp).toLocaleDateString('fr-FR', {
+          date: dateObj.toLocaleDateString('fr-FR', {
             day: 'numeric',
             month: 'short',
             hour: '2-digit',
@@ -73,8 +84,18 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        const date = new Date(data.timestamp);
-        const monthKey = date.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+        
+        // Convertir le timestamp Firestore en Date
+        let dateObj: Date;
+        if (data.timestamp?.toDate) {
+          dateObj = data.timestamp.toDate();
+        } else if (data.timestamp instanceof Date) {
+          dateObj = data.timestamp;
+        } else {
+          dateObj = new Date(data.timestamp);
+        }
+
+        const monthKey = dateObj.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
 
         if (!statsMap.has(monthKey)) {
           statsMap.set(monthKey, { income: 0, expense: 0 });
@@ -122,7 +143,12 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
               {user?.photoURL ? (
                 <img src={user.photoURL} alt={user.displayName} className="w-full h-full object-cover" />
               ) : (
-                <i className="fas fa-user"></i>
+                <div 
+                  className="w-full h-full flex items-center justify-center text-white font-bold"
+                  style={{
+                    backgroundImage: `url('https://ui-avatars.com/api/?name=${encodeURIComponent(user?.displayName || 'User')}&background=00F5D4&color=050A10&bold=true')`
+                  }}
+                />
               )}
             </div>
             <div>

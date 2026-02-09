@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { P2PRequest } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { performTransfer } from '../lib/transactionUtils';
+import { createP2PRequest, performTransfer, getReceivedP2PRequests } from '../lib/transactionUtils';
+import { useNotificationContext } from '../contexts/NotificationContext';
 
 interface P2PModalProps {
   isOpen: boolean;
@@ -10,37 +11,41 @@ interface P2PModalProps {
   onP2PSuccess?: () => void;
 }
 
-type P2PStep = 'method' | 'request' | 'send' | 'processing' | 'success';
+type P2PStep = 'method' | 'request' | 'send' | 'processing' | 'success' | 'all-requests' | 'pay-request';
 
 const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2PSuccess }) => {
   const { user } = useAuth();
+  const { success, error } = useNotificationContext();
   const [step, setStep] = useState<P2PStep>('method');
   const [method, setMethod] = useState<'request' | 'send' | null>(null);
   const [recipientNumber, setRecipientNumber] = useState('');
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [requests, setRequests] = useState<P2PRequest[]>([
-    {
-      id: '1',
-      senderId: 'MN10001',
-      senderName: 'Fatou Ndiaye',
-      amount: 50000,
-      status: 'pending',
-      timestamp: new Date(),
-      message: 'Pour le repas'
-    },
-    {
-      id: '2',
-      senderId: 'MN10002',
-      senderName: 'Amadou Sow',
-      amount: 25000,
-      status: 'pending',
-      timestamp: new Date(),
-      message: 'Remboursement'
+  const [requests, setRequests] = useState<P2PRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState<P2PRequest | null>(null);
+
+  // Charger les demandes P2P reçues quand le modal s'ouvre
+  useEffect(() => {
+    if (isOpen && user?.uid) {
+      loadRequests();
     }
-  ]);
+  }, [isOpen, user?.uid]);
+
+  const loadRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const receivedRequests = await getReceivedP2PRequests(user!.uid);
+      console.log('Received P2P requests:', receivedRequests);
+      setRequests(receivedRequests as P2PRequest[]);
+    } catch (err) {
+      console.error('Error loading P2P requests:', err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -50,31 +55,26 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
     setRecipientNumber('');
     setAmount('');
     setMessage('');
-    setError('');
+    setErrorMsg('');
     setIsProcessing(false);
     onClose();
   };
 
   const handleSendRequest = async () => {
-    setError('');
+    setErrorMsg('');
 
     if (!recipientNumber.trim()) {
-      setError('Veuillez entrer un numéro Moni');
+      setErrorMsg('Veuillez entrer un numéro Moni');
       return;
     }
 
     if (!amount || parseFloat(amount) <= 0) {
-      setError('Veuillez entrer un montant valide');
-      return;
-    }
-
-    if (parseFloat(amount) > userBalance) {
-      setError('Solde insuffisant');
+      setErrorMsg('Veuillez entrer un montant valide');
       return;
     }
 
     if (!user?.uid) {
-      setError('Utilisateur non authentifié');
+      setErrorMsg('Utilisateur non authentifié');
       return;
     }
 
@@ -82,32 +82,23 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
     setStep('processing');
 
     try {
-      await performTransfer(
+      await createP2PRequest(
         user.uid,
         recipientNumber,
         parseFloat(amount),
-        'p2p-send',
-        {
-          title: 'Demande P2P envoyée',
-          description: `À ${recipientNumber}`,
-          icon: 'fas fa-hand-holding-heart',
-          color: '#FFD166',
-          recipientMoniNumber: recipientNumber,
-          senderName: user.displayName || 'Utilisateur',
-          senderMoniNumber: user.moniNumber,
-          message: message || undefined,
-          reference: `P2P-${Date.now()}`
-        }
+        message || undefined
       );
+
+      success('Demande envoyée', `Demande de ${amount}$ envoyée à ${recipientNumber}`);
 
       setStep('success');
       setTimeout(() => {
         onP2PSuccess?.();
         handleClose();
       }, 2000);
-    } catch (err) {
-      setError('Erreur lors de l\'envoi. Veuillez réessayer.');
-      setStep('send');
+    } catch (err: any) {
+      error('Erreur', err?.message || 'Erreur lors de l\'envoi. Veuillez réessayer.');
+      setStep('request');
       console.error('P2P send error:', err);
     } finally {
       setIsProcessing(false);
@@ -119,12 +110,12 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
     if (!request) return;
 
     if (request.amount > userBalance) {
-      setError('Solde insuffisant');
+      setErrorMsg('Solde insuffisant');
       return;
     }
 
     if (!user?.uid) {
-      setError('Utilisateur non authentifié');
+      setErrorMsg('Utilisateur non authentifié');
       return;
     }
 
@@ -134,7 +125,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
     try {
       await performTransfer(
         user.uid,
-        request.senderId,
+        request.senderMoniNumber || request.senderId,
         request.amount,
         'p2p-send',
         {
@@ -143,7 +134,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
           icon: 'fas fa-check-circle',
           color: '#00F5D4',
           recipientName: request.senderName,
-          recipientMoniNumber: request.senderId,
+          recipientMoniNumber: request.senderMoniNumber || request.senderId,
           senderName: user.displayName || 'Utilisateur',
           senderMoniNumber: user.moniNumber,
           message: request.message || undefined,
@@ -160,7 +151,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
         handleClose();
       }, 2000);
     } catch (err) {
-      setError('Erreur lors de l\'acceptation. Veuillez réessayer.');
+      setErrorMsg('Erreur lors de l\'acceptation. Veuillez réessayer.');
       setStep('request');
       console.error('P2P accept error:', err);
     } finally {
@@ -172,6 +163,60 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
     setRequests(requests.map(r => 
       r.id === requestId ? { ...r, status: 'rejected' as const } : r
     ));
+  };
+
+  const handlePayRequest = async (request: P2PRequest) => {
+    console.log('Paying request:', request);
+    
+    if (request.amount > userBalance) {
+      setErrorMsg('Solde insuffisant');
+      return;
+    }
+
+    if (!user?.uid) {
+      setErrorMsg('Utilisateur non authentifié');
+      return;
+    }
+
+    setIsProcessing(true);
+    setStep('processing');
+
+    try {
+      const recipientMoniNumber = request.senderMoniNumber || request.senderId;
+      console.log('Transferring to:', recipientMoniNumber);
+      
+      await performTransfer(
+        user.uid,
+        recipientMoniNumber,
+        request.amount,
+        'p2p-send',
+        {
+          title: 'Demande P2P acceptée',
+          description: `À ${request.senderName}`,
+          icon: 'fas fa-check-circle',
+          color: '#00F5D4',
+          recipientName: request.senderName,
+          recipientMoniNumber: recipientMoniNumber,
+          senderName: user.displayName || 'Utilisateur',
+          senderMoniNumber: user.moniNumber,
+          message: request.message || undefined,
+          reference: `P2P-ACC-${Date.now()}`
+        }
+      );
+
+      success('Paiement effectué', `Paiement de ${request.amount}$ envoyé à ${request.senderName}`);
+      setStep('success');
+      setTimeout(() => {
+        onP2PSuccess?.();
+        handleClose();
+      }, 2000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Erreur lors du paiement. Veuillez réessayer.');
+      setStep('all-requests');
+      console.error('P2P payment error:', err);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -237,6 +282,20 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
                   <i className="fas fa-chevron-right text-moni-gray"></i>
                 </button>
               )}
+
+              <button
+                onClick={() => setStep('all-requests')}
+                className="w-full p-4 bg-moni-bg rounded-2xl border border-white/10 hover:border-moni-accent hover:bg-white/5 transition-all flex items-center gap-4"
+              >
+                <div className="w-12 h-12 bg-moni-accent/20 rounded-xl flex items-center justify-center text-moni-accent">
+                  <i className="fas fa-list text-lg"></i>
+                </div>
+                <div className="text-left flex-1">
+                  <h3 className="text-moni-white font-semibold text-sm">Voir toutes les demandes</h3>
+                  <p className="text-moni-gray text-xs">Afficher toutes les demandes reçues</p>
+                </div>
+                <i className="fas fa-chevron-right text-moni-gray"></i>
+              </button>
             </div>
 
             <button
@@ -257,7 +316,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
                 value={recipientNumber}
                 onChange={(e) => {
                   setRecipientNumber(e.target.value.toUpperCase());
-                  setError('');
+                  setErrorMsg('');
                 }}
                 placeholder="MN1000..."
                 className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent font-mono"
@@ -273,7 +332,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
                   value={amount}
                   onChange={(e) => {
                     setAmount(e.target.value);
-                    setError('');
+                    setErrorMsg('');
                   }}
                   placeholder="0.00"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl pl-8 pr-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent text-lg"
@@ -292,9 +351,9 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
               />
             </div>
 
-            {error && (
+            {errorMsg && (
               <div className="bg-red-500/20 border border-red-500 rounded-xl p-3 mb-4">
-                <p className="text-red-200 text-xs">{error}</p>
+                <p className="text-red-200 text-xs">{errorMsg}</p>
               </div>
             )}
 
@@ -325,7 +384,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
                 value={recipientNumber}
                 onChange={(e) => {
                   setRecipientNumber(e.target.value.toUpperCase());
-                  setError('');
+                  setErrorMsg('');
                 }}
                 placeholder="MN1000..."
                 className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent font-mono"
@@ -341,7 +400,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
                   value={amount}
                   onChange={(e) => {
                     setAmount(e.target.value);
-                    setError('');
+                    setErrorMsg('');
                   }}
                   placeholder="0.00"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl pl-8 pr-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent text-lg"
@@ -373,9 +432,9 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
               </div>
             </div>
 
-            {error && (
+            {errorMsg && (
               <div className="bg-red-500/20 border border-red-500 rounded-xl p-3 mb-4">
-                <p className="text-red-200 text-xs">{error}</p>
+                <p className="text-red-200 text-xs">{errorMsg}</p>
               </div>
             )}
 
@@ -406,34 +465,47 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
         {step === 'request' && method === 'send' && (
           <>
             <div className="space-y-3 mb-6">
-              {requests.filter(r => r.status === 'pending').map((req) => (
-                <div key={req.id} className="bg-moni-bg rounded-2xl p-4 border border-white/10">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h4 className="text-moni-white font-semibold text-sm">{req.senderName}</h4>
-                      <p className="text-moni-gray text-xs font-mono">{req.senderId}</p>
-                    </div>
-                    <p className="text-moni-accent font-bold text-lg">${req.amount.toLocaleString()}</p>
-                  </div>
-                  {req.message && (
-                    <p className="text-moni-gray text-xs mb-3 italic">"{req.message}"</p>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleRejectRequest(req.id)}
-                      className="flex-1 p-2 bg-red-500/20 text-red-200 rounded-lg text-xs font-semibold hover:bg-red-500/30 transition-all"
-                    >
-                      Refuser
-                    </button>
-                    <button
-                      onClick={() => handleAcceptRequest(req.id)}
-                      className="flex-1 p-2 bg-moni-accent text-moni-bg rounded-lg text-xs font-semibold hover:bg-moni-accent/90 transition-all"
-                    >
-                      Accepter
-                    </button>
+              {loadingRequests ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 rounded-full bg-moni-accent/20 flex items-center justify-center animate-pulse">
+                    <i className="fas fa-spinner text-moni-accent text-lg animate-spin"></i>
                   </div>
                 </div>
-              ))}
+              ) : requests.filter(r => r.status === 'pending').length === 0 ? (
+                <div className="bg-moni-bg rounded-2xl p-6 border border-white/10 text-center">
+                  <i className="fas fa-inbox text-moni-gray text-3xl mb-3 block"></i>
+                  <p className="text-moni-gray text-sm">Aucune demande en attente</p>
+                </div>
+              ) : (
+                requests.filter(r => r.status === 'pending').map((req) => (
+                  <div key={req.id} className="bg-moni-bg rounded-2xl p-4 border border-white/10">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="text-moni-white font-semibold text-sm">{req.senderName}</h4>
+                        <p className="text-moni-gray text-xs font-mono">{req.senderId}</p>
+                      </div>
+                      <p className="text-moni-accent font-bold text-lg">${req.amount.toLocaleString()}</p>
+                    </div>
+                    {req.message && (
+                      <p className="text-moni-gray text-xs mb-3 italic">"{req.message}"</p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRejectRequest(req.id)}
+                        className="flex-1 p-2 bg-red-500/20 text-red-200 rounded-lg text-xs font-semibold hover:bg-red-500/30 transition-all"
+                      >
+                        Refuser
+                      </button>
+                      <button
+                        onClick={() => handleAcceptRequest(req.id)}
+                        className="flex-1 p-2 bg-moni-accent text-moni-bg rounded-lg text-xs font-semibold hover:bg-moni-accent/90 transition-all"
+                      >
+                        Accepter
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
 
             <button
@@ -453,6 +525,139 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
             <h3 className="text-moni-white font-semibold text-lg mb-2">Traitement en cours</h3>
             <p className="text-moni-gray text-xs text-center">Veuillez patienter...</p>
           </div>
+        )}
+
+        {step === 'all-requests' && (
+          <>
+            <div className="space-y-3 mb-6">
+              {loadingRequests ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 rounded-full bg-moni-accent/20 flex items-center justify-center animate-pulse">
+                    <i className="fas fa-spinner text-moni-accent text-lg animate-spin"></i>
+                  </div>
+                </div>
+              ) : requests.length === 0 ? (
+                <div className="bg-moni-bg rounded-2xl p-6 border border-white/10 text-center">
+                  <i className="fas fa-inbox text-moni-gray text-3xl mb-3 block"></i>
+                  <p className="text-moni-gray text-sm">Aucune demande</p>
+                </div>
+              ) : (
+                requests.map((req) => (
+                  <div 
+                    key={req.id} 
+                    onClick={() => {
+                      setSelectedRequest(req);
+                      setStep('pay-request');
+                    }}
+                    className="bg-moni-bg rounded-2xl p-4 border border-white/10 hover:border-moni-accent cursor-pointer transition-all"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="text-moni-white font-semibold text-sm">{req.senderName}</h4>
+                        <p className="text-moni-gray text-xs font-mono">{req.senderMoniNumber || req.senderId}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-moni-accent font-bold text-lg">${req.amount.toLocaleString()}</p>
+                        <p className={`text-xs font-semibold ${req.status === 'pending' ? 'text-yellow-400' : req.status === 'accepted' ? 'text-green-400' : 'text-red-400'}`}>
+                          {req.status === 'pending' ? 'En attente' : req.status === 'accepted' ? 'Acceptée' : 'Refusée'}
+                        </p>
+                      </div>
+                    </div>
+                    {req.message && (
+                      <p className="text-moni-gray text-xs mb-2 italic">"{req.message}"</p>
+                    )}
+                    <p className="text-moni-gray text-xs">
+                      {new Date(req.timestamp).toLocaleDateString('fr-FR', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button
+              onClick={() => setStep('method')}
+              className="w-full bg-white/10 text-moni-white py-3 rounded-xl font-semibold hover:bg-white/20 transition-all"
+            >
+              Retour
+            </button>
+          </>
+        )}
+
+        {step === 'pay-request' && selectedRequest && (
+          <>
+            <div className="mb-6">
+              <div className="bg-moni-bg rounded-2xl p-4 border border-moni-accent/50 mb-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <p className="text-moni-gray text-xs mb-1">Demande de</p>
+                    <h4 className="text-moni-white font-semibold text-lg">{selectedRequest.senderName}</h4>
+                    <p className="text-moni-gray text-xs font-mono">{selectedRequest.senderMoniNumber || selectedRequest.senderId}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-moni-gray text-xs mb-1">Montant</p>
+                    <p className="text-moni-accent font-bold text-2xl">${selectedRequest.amount.toLocaleString()}</p>
+                  </div>
+                </div>
+                {selectedRequest.message && (
+                  <div className="bg-white/5 rounded-lg p-3 mt-3">
+                    <p className="text-moni-gray text-xs mb-1">Message</p>
+                    <p className="text-moni-white text-sm italic">"{selectedRequest.message}"</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-moni-bg rounded-2xl p-4 mb-6 border border-white/10">
+                <div className="flex justify-between mb-2">
+                  <span className="text-moni-gray text-xs">Solde disponible</span>
+                  <span className="text-moni-white font-semibold text-xs">${userBalance.toLocaleString()}</span>
+                </div>
+                <div className="w-full bg-white/10 rounded-full h-2">
+                  <div
+                    className="bg-moni-accent rounded-full h-2 transition-all"
+                    style={{ width: `${Math.min((selectedRequest.amount / userBalance) * 100, 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {errorMsg && (
+                <div className="bg-red-500/20 border border-red-500 rounded-xl p-3 mb-4">
+                  <p className="text-red-200 text-xs">{errorMsg}</p>
+                </div>
+              )}
+
+              {selectedRequest.amount > userBalance && (
+                <div className="bg-yellow-500/20 border border-yellow-500 rounded-xl p-3 mb-4">
+                  <p className="text-yellow-200 text-xs">Solde insuffisant pour payer cette demande</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setSelectedRequest(null);
+                  setStep('all-requests');
+                  setErrorMsg('');
+                }}
+                className="flex-1 p-3 bg-moni-bg border border-white/10 rounded-xl text-moni-white font-semibold hover:bg-white/5 transition-all"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => handlePayRequest(selectedRequest)}
+                disabled={isProcessing || selectedRequest.amount > userBalance}
+                className="flex-1 p-3 bg-moni-accent text-moni-bg rounded-xl font-semibold hover:bg-moni-accent/90 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isProcessing ? 'Paiement...' : 'Payer'}
+              </button>
+            </div>
+          </>
         )}
 
         {step === 'success' && (

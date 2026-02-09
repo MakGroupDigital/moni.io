@@ -91,10 +91,22 @@ export const getUnreadNotifications = async (userId: string) => {
   }
 };
 
+// Nettoyer les données en supprimant les champs undefined et null
+const cleanData = (obj: any): any => {
+  const cleaned: any = {};
+  for (const key in obj) {
+    const value = obj[key];
+    if (value !== undefined && value !== null) {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned;
+};
+
 // Effectuer un transfert (dépôt, retrait, envoi, etc.)
 export const performTransfer = async (
   senderId: string,
-  recipientId: string | null,
+  recipientMoniNumber: string | null,
   amount: number,
   type: 'deposit' | 'withdraw' | 'send' | 'p2p-send' | 'bill',
   transactionData: Omit<FirestoreTransaction, 'id' | 'timestamp' | 'userId' | 'type' | 'amount' | 'status'>
@@ -102,7 +114,16 @@ export const performTransfer = async (
   try {
     // Vérifier si le document utilisateur existe
     const senderRef = doc(db, 'users', senderId);
-    const senderDoc = await getDoc(senderRef);
+    
+    let senderDoc;
+    try {
+      senderDoc = await getDoc(senderRef);
+    } catch (error: any) {
+      if (error?.code === 'failed-precondition' || error?.message?.includes('offline')) {
+        throw new Error('Connexion perdue. Vérifiez votre connexion Internet et réessayez.');
+      }
+      throw error;
+    }
     
     // Si le document n'existe pas, le créer avec un solde initial
     if (!senderDoc.exists()) {
@@ -119,14 +140,14 @@ export const performTransfer = async (
 
     // Créer la transaction
     const transactionRef = doc(collection(db, 'transactions'));
-    batch.set(transactionRef, {
+    batch.set(transactionRef, cleanData({
       userId: senderId,
       type,
       amount,
       status: 'completed',
       timestamp: Timestamp.now(),
       ...transactionData
-    });
+    }));
 
     // Mettre à jour le solde de l'expéditeur
     if (type === 'deposit') {
@@ -136,39 +157,48 @@ export const performTransfer = async (
     }
 
     // Si c'est un transfert vers un destinataire, mettre à jour son solde et créer une notification
-    if (recipientId && (type === 'send' || type === 'p2p-send')) {
-      const recipientRef = doc(db, 'users', recipientId);
-      const recipientDoc = await getDoc(recipientRef);
+    if (recipientMoniNumber && (type === 'send' || type === 'p2p-send')) {
+      // Chercher l'utilisateur destinataire par moniNumber
+      const recipientQuery = query(
+        collection(db, 'users'),
+        where('moniNumber', '==', recipientMoniNumber)
+      );
       
-      // Si le document du destinataire n'existe pas, le créer
-      if (!recipientDoc.exists()) {
-        await setDoc(recipientRef, {
-          uid: recipientId,
-          balance: 0,
-          paypalBalance: 0,
-          createdAt: Timestamp.now()
-        });
+      const recipientSnapshot = await getDocs(recipientQuery);
+      
+      if (recipientSnapshot.empty) {
+        throw new Error('Destinataire non trouvé');
       }
+
+      const recipientDoc = recipientSnapshot.docs[0];
+      const recipientRef = recipientDoc.ref;
+      const recipientId = recipientDoc.id;
 
       batch.update(recipientRef, { balance: increment(amount) });
 
       // Créer une transaction de réception pour le destinataire
       const receiveTransactionRef = doc(collection(db, 'transactions'));
-      batch.set(receiveTransactionRef, {
+      batch.set(receiveTransactionRef, cleanData({
         userId: recipientId,
         type: type === 'send' ? 'receive' : 'p2p-receive',
         amount,
         status: 'completed',
         timestamp: Timestamp.now(),
-        ...transactionData,
+        title: 'Argent reçu',
+        description: `De ${transactionData.senderName}`,
+        icon: 'fas fa-arrow-down',
+        color: '#00F5D4',
+        reference: transactionData.reference,
+        metadata: transactionData.metadata,
         senderId,
         senderName: transactionData.senderName,
-        senderMoniNumber: transactionData.senderMoniNumber
-      });
+        senderMoniNumber: transactionData.senderMoniNumber,
+        message: transactionData.message
+      }));
 
       // Créer une notification persistante pour le destinataire
       const notificationRef = doc(collection(db, 'notifications'));
-      batch.set(notificationRef, {
+      batch.set(notificationRef, cleanData({
         userId: recipientId,
         type: type === 'send' ? 'transfer-received' : 'p2p-received',
         title: `Vous avez reçu ${amount}`,
@@ -180,13 +210,19 @@ export const performTransfer = async (
         read: false,
         actionRequired: true,
         transactionId: receiveTransactionRef.id
-      });
+      }));
     }
 
     await batch.commit();
     return transactionRef.id;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error performing transfer:', error);
+    
+    // Améliorer le message d'erreur pour les cas offline
+    if (error?.code === 'failed-precondition' || error?.message?.includes('offline')) {
+      throw new Error('Connexion perdue. Vérifiez votre connexion Internet et réessayez.');
+    }
+    
     throw error;
   }
 };
@@ -197,8 +233,7 @@ export const getUserTransactions = async (userId: string, limit: number = 10) =>
     const q = query(
       collection(db, 'transactions'),
       where('userId', '==', userId),
-      orderBy('timestamp', 'desc'),
-      // Note: limit is applied in the component if needed
+      orderBy('timestamp', 'desc')
     );
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => ({
@@ -234,5 +269,111 @@ export const updateUserBalance = async (userId: string, amount: number) => {
   } catch (error) {
     console.error('Error updating user balance:', error);
     throw error;
+  }
+};
+
+
+// Créer une demande P2P (demander de l'argent)
+export const createP2PRequest = async (
+  senderId: string,
+  recipientMoniNumber: string,
+  amount: number,
+  message?: string
+) => {
+  try {
+    // Chercher l'utilisateur destinataire par moniNumber
+    const recipientQuery = query(
+      collection(db, 'users'),
+      where('moniNumber', '==', recipientMoniNumber)
+    );
+    
+    const recipientSnapshot = await getDocs(recipientQuery);
+    
+    if (recipientSnapshot.empty) {
+      throw new Error('Destinataire non trouvé');
+    }
+
+    const recipientDoc = recipientSnapshot.docs[0];
+    const recipientId = recipientDoc.id;
+    const recipientData = recipientDoc.data();
+    
+    console.log('Recipient found:', { recipientId, moniNumber: recipientData.moniNumber });
+
+    // Récupérer les données de l'expéditeur
+    const senderRef = doc(db, 'users', senderId);
+    const senderDoc = await getDoc(senderRef);
+    
+    if (!senderDoc.exists()) {
+      throw new Error('Utilisateur non trouvé');
+    }
+
+    const senderData = senderDoc.data();
+
+    // Créer une notification de demande P2P pour le destinataire
+    const senderName = senderData.displayName || 'Utilisateur';
+    const senderMoniNumber = senderData.moniNumber;
+    console.log('Creating P2P request - senderMoniNumber:', senderMoniNumber, 'senderData:', senderData);
+    const docRef = await addDoc(collection(db, 'notifications'), {
+      userId: recipientId,
+      type: 'p2p-request',
+      title: 'Demande de paiement',
+      message: `${senderName} vous demande ${amount}$${message ? ': ' + message : ''}`,
+      amount,
+      senderName: senderName,
+      senderMoniNumber: senderMoniNumber,
+      senderId,
+      timestamp: Timestamp.now(),
+      read: false,
+      actionRequired: true
+    });
+    console.log('P2P request notification created:', docRef.id);
+
+    return docRef.id;
+  } catch (error: any) {
+    console.error('Error creating P2P request:', error);
+    throw error;
+  }
+};
+
+// Récupérer les demandes P2P reçues par un utilisateur
+export const getReceivedP2PRequests = async (userId: string) => {
+  try {
+    console.log('Fetching P2P requests for user:', userId);
+    // Récupérer toutes les notifications de l'utilisateur
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userId),
+      orderBy('timestamp', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    console.log('Total notifications found:', snapshot.docs.length);
+    
+    // Filtrer les demandes P2P en JavaScript
+    const p2pRequests = snapshot.docs
+      .filter(doc => {
+        const type = doc.data().type;
+        console.log('Notification type:', type);
+        return type === 'p2p-request';
+      })
+      .map(doc => {
+        const data = doc.data();
+        console.log('P2P request data:', { senderMoniNumber: data.senderMoniNumber, senderId: data.senderId });
+        return {
+          id: doc.id,
+          senderId: data.senderId,
+          senderName: data.senderName || 'Utilisateur',
+          senderMoniNumber: data.senderMoniNumber,
+          amount: data.amount,
+          status: 'pending' as const,
+          timestamp: data.timestamp?.toDate?.() || new Date(),
+          message: data.message
+        };
+      });
+    
+    console.log('P2P requests found:', p2pRequests.length);
+    return p2pRequests;
+  } catch (error) {
+    console.error('Error fetching P2P requests:', error);
+    return [];
   }
 };

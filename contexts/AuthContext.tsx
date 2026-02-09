@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { AuthUser } from '../types';
 
 interface AuthContextType {
@@ -12,6 +12,14 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Générer un numéro Moni unique basé sur l'UID
+const generateMoniNumber = (uid: string): string => {
+  // Utiliser les 8 derniers caractères du UID en base 10
+  const hash = uid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const uniqueNumber = Math.abs(hash % 1000000).toString().padStart(6, '0');
+  return `MN1000${uniqueNumber}`;
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -24,13 +32,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const userRef = doc(db, 'users', fbUser.uid);
           
+          // Générer un numéro Moni unique basé sur l'UID
+          const moniNumber = generateMoniNumber(fbUser.uid);
+          
           // Créer un utilisateur minimal immédiatement
           const minimalUser: AuthUser = {
             uid: fbUser.uid,
             email: fbUser.email || '',
             displayName: fbUser.displayName || 'User',
             photoURL: fbUser.photoURL || undefined,
-            moniNumber: `MN1000${Math.floor(Math.random() * 10000)}`,
+            moniNumber,
             balance: 0,
             paypalBalance: 0,
             createdAt: new Date()
@@ -45,12 +56,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const userDoc = await getDoc(userRef);
 
             if (!userDoc.exists()) {
-              // Créer un nouvel utilisateur dans Firestore
-              await setDoc(userRef, minimalUser);
+              // Créer un nouvel utilisateur dans Firestore avec le numéro Moni
+              await setDoc(userRef, {
+                uid: fbUser.uid,
+                email: fbUser.email || '',
+                displayName: fbUser.displayName || 'User',
+                photoURL: fbUser.photoURL || undefined,
+                moniNumber,
+                balance: 0,
+                paypalBalance: 0,
+                createdAt: Timestamp.now()
+              });
             } else {
               // Mettre à jour avec les données de Firestore
-              const userData = userDoc.data() as AuthUser;
-              setUser(userData);
+              const userData = userDoc.data();
+              // S'assurer que le moniNumber et displayName sont définis
+              if (!userData?.moniNumber || !userData?.displayName) {
+                await setDoc(userRef, { 
+                  ...userData, 
+                  moniNumber: userData?.moniNumber || moniNumber,
+                  displayName: userData?.displayName || fbUser.displayName || 'User'
+                }, { merge: true });
+              }
+              // Convertir les données correctement
+              const convertedUser: AuthUser = {
+                uid: userData?.uid || fbUser.uid,
+                email: userData?.email || fbUser.email || '',
+                displayName: userData?.displayName || fbUser.displayName || 'User',
+                photoURL: userData?.photoURL || fbUser.photoURL || undefined,
+                moniNumber: userData?.moniNumber || moniNumber,
+                balance: userData?.balance || 0,
+                paypalBalance: userData?.paypalBalance || 0,
+                createdAt: userData?.createdAt?.toDate?.() || new Date()
+              };
+              setUser(convertedUser);
             }
           } catch (firestoreError) {
             console.warn('Firestore error (offline?):', firestoreError);
@@ -62,8 +101,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             userRef,
             (docSnapshot) => {
               if (docSnapshot.exists()) {
-                const updatedUserData = docSnapshot.data() as AuthUser;
-                setUser(updatedUserData);
+                const userData = docSnapshot.data();
+                // Convertir les données correctement
+                const convertedUser: AuthUser = {
+                  uid: userData?.uid || fbUser.uid,
+                  email: userData?.email || fbUser.email || '',
+                  displayName: userData?.displayName || fbUser.displayName || 'User',
+                  photoURL: userData?.photoURL || fbUser.photoURL || undefined,
+                  moniNumber: userData?.moniNumber || moniNumber,
+                  balance: userData?.balance || 0,
+                  paypalBalance: userData?.paypalBalance || 0,
+                  createdAt: userData?.createdAt?.toDate?.() || new Date()
+                };
+                setUser(convertedUser);
               }
             },
             (error) => {
@@ -76,12 +126,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error) {
           console.error('Error setting up user:', error);
           // Créer un utilisateur minimal même en cas d'erreur
+          const moniNumber = generateMoniNumber(fbUser.uid);
           const minimalUser: AuthUser = {
             uid: fbUser.uid,
             email: fbUser.email || '',
             displayName: fbUser.displayName || 'User',
             photoURL: fbUser.photoURL || undefined,
-            moniNumber: `MN1000${Math.floor(Math.random() * 10000)}`,
+            moniNumber,
             balance: 0,
             paypalBalance: 0,
             createdAt: new Date()

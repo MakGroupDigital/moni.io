@@ -67,6 +67,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
 
     setIsProcessing(true);
     setStep('processing');
+    setError('');
 
     try {
       await performTransfer(
@@ -93,10 +94,11 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
         onDepositSuccess?.();
         handleClose();
       }, 2000);
-    } catch (err) {
-      setError('Erreur lors du dépôt. Veuillez réessayer.');
-      setStep('form');
+    } catch (err: any) {
       console.error('Deposit error:', err);
+      const errorMessage = err?.message || 'Erreur lors du dépôt. Veuillez réessayer.';
+      setError(errorMessage);
+      setStep('form');
     } finally {
       setIsProcessing(false);
     }

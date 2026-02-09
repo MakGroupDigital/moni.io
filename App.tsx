@@ -19,6 +19,7 @@ import Login from './views/Login';
 import Onboarding from './views/Onboarding';
 import UserProfile from './views/UserProfile';
 import { useAuth } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { useNotifications } from './lib/useNotifications';
 
 interface CurrencyContextType {
@@ -141,9 +142,9 @@ const AppContent: React.FC<{ currency: Currency; setCurrency: (c: Currency) => v
         depositModal={<DepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} onDepositSuccess={() => setShowDepositModal(false)} />}
         withdrawModal={<WithdrawModal isOpen={showWithdrawModal} onClose={() => setShowWithdrawModal(false)} onWithdrawSuccess={() => setShowWithdrawModal(false)} />}
         paypalModal={<PayPalModal isOpen={showPayPalModal} onClose={() => setShowPayPalModal(false)} paypalBalance={145.00} />}
-        sendModal={<SendModal isOpen={showSendModal} onClose={() => setShowSendModal(false)} userBalance={1250500} onSendSuccess={() => setShowSendModal(false)} />}
-        p2pModal={<P2PModal isOpen={showP2PModal} onClose={() => setShowP2PModal(false)} userBalance={1250500} onP2PSuccess={() => setShowP2PModal(false)} />}
-        billsModal={<BillsModal isOpen={showBillsModal} onClose={() => setShowBillsModal(false)} userBalance={1250500} onBillPaySuccess={() => setShowBillsModal(false)} />}
+        sendModal={<SendModal isOpen={showSendModal} onClose={() => setShowSendModal(false)} userBalance={user?.balance || 0} onSendSuccess={() => setShowSendModal(false)} />}
+        p2pModal={<P2PModal isOpen={showP2PModal} onClose={() => setShowP2PModal(false)} userBalance={user?.balance || 0} onP2PSuccess={() => setShowP2PModal(false)} />}
+        billsModal={<BillsModal isOpen={showBillsModal} onClose={() => setShowBillsModal(false)} userBalance={user?.balance || 0} onBillPaySuccess={() => setShowBillsModal(false)} />}
         ussdModal={<USSDModal isOpen={showUSSDModal} onClose={() => setShowUSSDModal(false)} />}
       >
         {renderView()}
@@ -158,7 +159,9 @@ const App: React.FC = () => {
 
   return (
     <CurrencyContext.Provider value={{ currency, setCurrency }}>
-      <AppContent currency={currency} setCurrency={setCurrency} />
+      <NotificationProvider>
+        <AppContent currency={currency} setCurrency={setCurrency} />
+      </NotificationProvider>
     </CurrencyContext.Provider>
   );
 };
