@@ -135,7 +135,7 @@ const AppContent: React.FC<{ currency: Currency; setCurrency: (c: Currency) => v
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-moni-dark p-4">
+    <div className="md:flex md:items-center md:justify-center md:min-h-screen bg-moni-dark md:p-4">
       <Layout 
         currentTab={currentTab} 
         onTabChange={setCurrentTab}
