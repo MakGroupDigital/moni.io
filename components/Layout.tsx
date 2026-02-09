@@ -22,8 +22,8 @@ const Layout: React.FC<LayoutProps> = ({ children, currentTab, onTabChange, depo
 
   return (
     <div className="w-full h-screen bg-moni-bg relative overflow-hidden flex flex-col">
-      {/* Logo in Header */}
-      <div className="pt-4 px-5 z-40">
+      {/* Logo Header with Gradient Background */}
+      <div className="bg-gradient-to-r from-moni-accent/10 via-moni-accent/5 to-transparent px-5 py-4 border-b border-moni-accent/10">
         <img src="/onelogo.png" alt="Moni.io" className="h-8 w-auto" />
       </div>
 
