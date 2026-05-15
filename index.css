@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@theme {
+  --color-moni-bg: #0D1B2A;
+  --color-moni-card: #1B263B;
+  --color-moni-accent: #00F5D4;
+  --color-moni-white: #F8F9FA;
+  --color-moni-gray: #A0AAB5;
+  --color-moni-danger: #FF4D4D;
+  --color-moni-success: #00F5D4;
+  --color-moni-dark: #050A10;
+  --font-sans: "Poppins", sans-serif;
+  --font-montserrat: "Montserrat", sans-serif;
+}
+
 @layer base {
   body {
     @apply bg-[#0a0e27] text-[#f5f7fa];

@@ -115,19 +115,32 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
       },
       body: JSON.stringify(payload),
     });
+
     const contentType = response.headers.get('content-type') || '';
-    const data = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
+    const rawText = await response.text().catch(() => '');
+    const normalizedText = rawText.replace(/\s+/g, ' ').trim();
+    let data: any = null;
+
+    if (contentType.includes('application/json') || normalizedText.startsWith('{') || normalizedText.startsWith('[')) {
+      try {
+        data = JSON.parse(rawText || 'null');
+      } catch {
+        data = null;
+      }
+    }
 
     if (!response.ok || data?.success === false) {
       throw new Error(
         data?.error ||
         data?.message ||
-        'Le service de dépôt n’est pas disponible en local. Relancez le serveur puis réessayez.'
+        (normalizedText
+          ? `Erreur serveur dépôt (${response.status}): ${normalizedText}`
+          : `Erreur serveur dépôt (${response.status}).`)
       );
     }
 
     if (!data) {
-      throw new Error('Réponse dépôt invalide. Relancez le serveur local puis réessayez.');
+      throw new Error('Réponse dépôt invalide: le serveur n’a pas renvoyé de JSON.');
     }
 
     return data;
