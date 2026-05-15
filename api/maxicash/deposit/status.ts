@@ -1,3 +1,5 @@
+import type { ApiRequest, ApiResponse } from '../../_lib/http';
+import { sendJson, sendNoContent } from '../../_lib/http';
 import {
   commitWrites,
   createFirestoreId,
@@ -15,17 +17,6 @@ import {
   isImmediateMaxiCashFailure,
 } from '../../_lib/maxicash';
 
-type ApiRequest = {
-  method?: string;
-  body?: any;
-  headers?: Record<string, string | string[] | undefined>;
-};
-
-type ApiResponse = {
-  setHeader: (name: string, value: string | string[]) => void;
-  status: (code: number) => { json: (body: any) => void; end: () => void };
-};
-
 const FAIL_AFTER_MS = 15 * 60 * 1000;
 
 async function readJsonBody(req: ApiRequest) {
@@ -35,8 +26,8 @@ async function readJsonBody(req: ApiRequest) {
 }
 
 function sendMethodNotAllowed(res: ApiResponse) {
-  res.setHeader('Allow', ['POST', 'OPTIONS']);
-  return res.status(405).json({ success: false, error: 'Méthode non autorisée.' });
+  res.setHeader?.('Allow', ['POST', 'OPTIONS']);
+  return sendJson(res, 405, { success: false, error: 'Méthode non autorisée.' });
 }
 
 function getProviderTransactionId(payload: Record<string, any> | null | undefined, fallback?: string | null) {
@@ -116,7 +107,7 @@ async function creditCompletedDeposit(params: {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
-  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'OPTIONS') return sendNoContent(res);
   if (req.method !== 'POST') return sendMethodNotAllowed(res);
 
   try {
@@ -125,30 +116,30 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const transactionId = String(body.transactionId || '').trim();
 
     if (!transactionId) {
-      return res.status(400).json({ success: false, error: 'Transaction introuvable.' });
+      return sendJson(res, 400, { success: false, error: 'Transaction introuvable.' });
     }
 
     const transactionPath = `transactions/${transactionId}`;
     const transactionSnap = await getDocument(transactionPath, auth.token);
 
     if (!transactionSnap.exists) {
-      return res.status(404).json({ success: false, error: 'Transaction introuvable.' });
+      return sendJson(res, 404, { success: false, error: 'Transaction introuvable.' });
     }
 
     const transaction = transactionSnap.data;
     if (transaction.userId !== auth.uid) {
-      return res.status(403).json({ success: false, error: 'Accès refusé.' });
+      return sendJson(res, 403, { success: false, error: 'Accès refusé.' });
     }
 
     if (transaction.type !== 'deposit' || transaction.metadata?.provider !== 'maxicash') {
-      return res.status(400).json({ success: false, error: 'Cette transaction n’est pas un dépôt Mobile Money.' });
+      return sendJson(res, 400, { success: false, error: 'Cette transaction n’est pas un dépôt Mobile Money.' });
     }
 
     const amountToCredit = Number(transaction.amount || transaction.metadata?.creditedAmount || 0);
     const walletCurrency = String(transaction.metadata?.walletCurrency || 'USD');
 
     if (transaction.status === 'completed') {
-      return res.status(200).json({
+      return sendJson(res, 200, {
         success: true,
         transactionStatus: 'completed',
         transactionId,
@@ -160,7 +151,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     const reference = String(transaction.reference || transaction.metadata?.reference || '').trim();
     if (!reference) {
-      return res.status(400).json({ success: false, error: 'Référence MaxiCash manquante.' });
+      return sendJson(res, 400, { success: false, error: 'Référence MaxiCash manquante.' });
     }
 
     const previousProviderTransactionId =
@@ -191,7 +182,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         if (latest.data.status !== 'completed') throw error;
       }
 
-      return res.status(200).json({
+      return sendJson(res, 200, {
         success: true,
         transactionStatus: 'completed',
         transactionId,
@@ -237,7 +228,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         auth.token
       );
 
-      return res.status(shouldFail ? 502 : 200).json({
+      return sendJson(res, shouldFail ? 502 : 200, {
         success: !shouldFail,
         transactionStatus: shouldFail ? 'failed' : 'pending',
         transactionId,
@@ -268,7 +259,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       auth.token
     );
 
-    return res.status(200).json({
+    return sendJson(res, 200, {
       success: true,
       transactionStatus: 'pending',
       transactionId,
@@ -285,7 +276,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     console.error('MaxiCash deposit status error:', error);
     const message = error?.message || 'Impossible de vérifier le dépôt.';
     const status = message.includes('Non authentifié') ? 401 : 500;
-    return res.status(status).json({
+    return sendJson(res, status, {
       success: false,
       error: message,
     });

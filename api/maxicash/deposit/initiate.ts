@@ -1,4 +1,6 @@
 import { convertAmount, SupportedCurrency } from '../../_lib/rates';
+import type { ApiRequest, ApiResponse } from '../../_lib/http';
+import { sendJson, sendNoContent } from '../../_lib/http';
 import {
   commitWrites,
   createFirestoreId,
@@ -25,17 +27,6 @@ import {
   MaxiCashPaymentCurrency,
   normalizeCongolesePhone,
 } from '../../_lib/maxicash';
-
-type ApiRequest = {
-  method?: string;
-  body?: any;
-  headers?: Record<string, string | string[] | undefined>;
-};
-
-type ApiResponse = {
-  setHeader: (name: string, value: string | string[]) => void;
-  status: (code: number) => { json: (body: any) => void; end: () => void };
-};
 
 const SUPPORTED_WALLET_CURRENCIES: SupportedCurrency[] = ['USD', 'EUR', 'CDF', 'XOF', 'FCFA'];
 const SUPPORTED_PAYMENT_CURRENCIES: MaxiCashPaymentCurrency[] = ['USD', 'CDF'];
@@ -66,8 +57,8 @@ async function readJsonBody(req: ApiRequest) {
 }
 
 function sendMethodNotAllowed(res: ApiResponse) {
-  res.setHeader('Allow', ['POST', 'OPTIONS']);
-  return res.status(405).json({ success: false, error: 'Méthode non autorisée.' });
+  res.setHeader?.('Allow', ['POST', 'OPTIONS']);
+  return sendJson(res, 405, { success: false, error: 'Méthode non autorisée.' });
 }
 
 function getProviderTransactionId(payload: Record<string, any> | null | undefined) {
@@ -139,7 +130,7 @@ async function completeDeposit(params: {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
-  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'OPTIONS') return sendNoContent(res);
   if (req.method !== 'POST') return sendMethodNotAllowed(res);
 
   try {
@@ -151,15 +142,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const phoneNumber = normalizeCongolesePhone(String(body.phoneNumber || body.telephone || ''));
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ success: false, error: 'Montant invalide.' });
+      return sendJson(res, 400, { success: false, error: 'Montant invalide.' });
     }
 
     if (!operator) {
-      return res.status(400).json({ success: false, error: 'Opérateur non pris en charge.' });
+      return sendJson(res, 400, { success: false, error: 'Opérateur non pris en charge.' });
     }
 
     if (!phoneNumber || phoneNumber.length < 11) {
-      return res.status(400).json({ success: false, error: 'Numéro de téléphone invalide.' });
+      return sendJson(res, 400, { success: false, error: 'Numéro de téléphone invalide.' });
     }
 
     const userPath = `users/${auth.uid}`;
@@ -258,7 +249,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         if (latest.data.status !== 'completed') throw error;
       }
 
-      return res.status(200).json({
+      return sendJson(res, 200, {
         success: true,
         transactionStatus: 'completed',
         transactionId,
@@ -300,7 +291,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
           transactionUpdateTime ? { updateTime: transactionUpdateTime } : undefined
         );
 
-        return res.status(502).json({
+        return sendJson(res, 502, {
           success: false,
           transactionStatus: 'failed',
           transactionId,
@@ -330,7 +321,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       transactionUpdateTime ? { updateTime: transactionUpdateTime } : undefined
     );
 
-    return res.status(200).json({
+    return sendJson(res, 200, {
       success: true,
       transactionStatus: 'pending',
       transactionId,
@@ -350,7 +341,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     console.error('MaxiCash deposit initiation error:', error);
     const message = error?.message || 'Impossible d’initier le dépôt.';
     const status = message.includes('Non authentifié') ? 401 : 500;
-    return res.status(status).json({
+    return sendJson(res, status, {
       success: false,
       error: message,
     });

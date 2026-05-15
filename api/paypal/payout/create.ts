@@ -1,4 +1,6 @@
 import { convertAmount, SupportedCurrency } from '../../_lib/rates';
+import type { ApiRequest, ApiResponse } from '../../_lib/http';
+import { sendJson, sendNoContent } from '../../_lib/http';
 import {
   commitWrites,
   createFirestoreId,
@@ -15,17 +17,6 @@ import {
   PayPalApiError,
 } from '../../_lib/paypal';
 
-type ApiRequest = {
-  method?: string;
-  body?: any;
-  headers?: Record<string, string | string[] | undefined>;
-};
-
-type ApiResponse = {
-  setHeader: (name: string, value: string | string[]) => void;
-  status: (code: number) => { json: (body: any) => void; end: () => void };
-};
-
 const WALLET_CURRENCIES: SupportedCurrency[] = ['USD', 'EUR', 'CDF', 'XOF', 'FCFA'];
 const PAYPAL_PAYOUT_CURRENCIES: SupportedCurrency[] = ['USD', 'EUR'];
 
@@ -36,8 +27,8 @@ async function readJsonBody(req: ApiRequest) {
 }
 
 function sendMethodNotAllowed(res: ApiResponse) {
-  res.setHeader('Allow', ['POST', 'OPTIONS']);
-  return res.status(405).json({ success: false, error: 'Méthode non autorisée.' });
+  res.setHeader?.('Allow', ['POST', 'OPTIONS']);
+  return sendJson(res, 405, { success: false, error: 'Méthode non autorisée.' });
 }
 
 function normalizeWalletCurrency(value: unknown): SupportedCurrency {
@@ -53,7 +44,7 @@ function normalizePayoutCurrency(value: unknown, fallback: SupportedCurrency): S
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
-  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'OPTIONS') return sendNoContent(res);
   if (req.method !== 'POST') return sendMethodNotAllowed(res);
 
   try {
@@ -63,23 +54,23 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const receiverEmail = String(body.receiverEmail || '').trim();
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ success: false, error: 'Montant invalide.' });
+      return sendJson(res, 400, { success: false, error: 'Montant invalide.' });
     }
 
     if (!receiverEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiverEmail)) {
-      return res.status(400).json({ success: false, error: 'Compte PayPal invalide.' });
+      return sendJson(res, 400, { success: false, error: 'Compte PayPal invalide.' });
     }
 
     const userPath = `users/${auth.uid}`;
     const userSnap = await getDocument(userPath, auth.token);
     if (!userSnap.exists) {
-      return res.status(404).json({ success: false, error: 'Utilisateur introuvable.' });
+      return sendJson(res, 404, { success: false, error: 'Utilisateur introuvable.' });
     }
 
     const userData = userSnap.data;
     const balance = Number(userData.balance || 0);
     if (balance < amount) {
-      return res.status(400).json({ success: false, error: 'Solde insuffisant.' });
+      return sendJson(res, 400, { success: false, error: 'Solde insuffisant.' });
     }
 
     const walletCurrency = normalizeWalletCurrency(body.currency || userData.preferredCurrency || userData.currency);
@@ -93,7 +84,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const hasPayoutScope = paypalScopes.some((scope) => scope.includes('/payments/payouts'));
 
     if (!hasPayoutScope) {
-      return res.status(403).json({
+      return sendJson(res, 403, {
         success: false,
         provider: 'paypal',
         error: 'PayPal refuse ce retrait: le token OAuth de cette application ne contient pas le scope Payouts.',
@@ -175,7 +166,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       auth.token
     );
 
-    return res.status(200).json({
+    return sendJson(res, 200, {
       success: true,
       transactionId,
       transactionStatus: batchStatus === 'SUCCESS' ? 'completed' : 'pending',
@@ -197,7 +188,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       : message.includes('Payouts')
         ? 403
         : 500;
-    return res.status(status).json({
+    return sendJson(res, status, {
       success: false,
       error: message,
       provider: 'paypal',
