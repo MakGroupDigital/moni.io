@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { CURRENCY_SYMBOLS } from '../types';
+import { CURRENCY_SYMBOLS, Currency } from '../types';
 import { useCurrency } from '../App';
 import { useAuth } from '../contexts/AuthContext';
-import { performTransfer } from '../lib/transactionUtils';
 import PinConfirmModal from './PinConfirmModal';
 
 interface WithdrawModalProps {
@@ -14,6 +13,62 @@ interface WithdrawModalProps {
 type WithdrawMethod = 'moni-wallet' | 'paypal' | null;
 type WithdrawStep = 'method' | 'form' | 'processing' | 'success';
 
+const MOBILE_MONEY_OPERATORS = [
+  { id: 'mpesa', name: 'M-Pesa', color: '#00AA00' },
+  { id: 'airtel', name: 'Airtel Money', color: '#E60000' },
+  { id: 'orange', name: 'Orange Money', color: '#FF6600' },
+  { id: 'africell', name: 'Africell Money', color: '#0066CC' },
+] as const;
+
+type MobileMoneyOperatorId = typeof MOBILE_MONEY_OPERATORS[number]['id'];
+
+const DRC_OPERATOR_PREFIXES: Record<MobileMoneyOperatorId, string[]> = {
+  mpesa: ['81', '82', '83', '86'],
+  airtel: ['97', '98', '99'],
+  orange: ['80', '84', '85', '89'],
+  africell: ['90', '91'],
+};
+
+const getCongoleseNationalDigits = (value: string) => {
+  let digits = value.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('243')) return digits.slice(3);
+  if (digits.startsWith('0')) return digits.slice(1);
+  return digits;
+};
+
+const detectOperatorFromPhone = (value: string): MobileMoneyOperatorId | '' => {
+  const nationalDigits = getCongoleseNationalDigits(value);
+  if (nationalDigits.length < 2) return '';
+
+  const prefix = nationalDigits.slice(0, 2);
+  const match = MOBILE_MONEY_OPERATORS.find((operator) => DRC_OPERATOR_PREFIXES[operator.id].includes(prefix));
+  return match?.id || '';
+};
+
+const roundForCurrency = (value: number, currency: Currency) => {
+  if (currency === 'CDF' || currency === 'XOF' || currency === 'FCFA') return Math.round(value);
+  return Math.round(value * 100) / 100;
+};
+
+const getWithdrawalFee = (value: number, currency: Currency) => {
+  const minimum = currency === 'CDF' ? 1000 : 1;
+  const onePercentLimit = currency === 'CDF' ? 100000 : 100;
+  const feeRate = value >= minimum && value <= onePercentLimit ? 0.01 : 0.02;
+  const feeAmount = value > 0 ? roundForCurrency(value * feeRate, currency) : 0;
+  const totalDebit = value > 0 ? roundForCurrency(value + feeAmount, currency) : 0;
+
+  return { minimum, onePercentLimit, feeRate, feeAmount, totalDebit };
+};
+
+const formatMoney = (value: number, currency: Currency, symbol: string) => {
+  const decimals = currency === 'CDF' || currency === 'XOF' || currency === 'FCFA' ? 0 : 2;
+  return `${symbol}${Number(value || 0).toLocaleString('fr-FR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+};
+
 const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdrawSuccess }) => {
   const { user, firebaseUser } = useAuth();
   const { currency } = useCurrency();
@@ -21,11 +76,14 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
   const paypalEmail = (user as any)?.paypalEmail || '';
   const [method, setMethod] = useState<WithdrawMethod>(null);
   const [amount, setAmount] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [selectedOperator, setSelectedOperator] = useState<MobileMoneyOperatorId | ''>('');
   const [destinationEmail, setDestinationEmail] = useState(paypalEmail);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPinConfirm, setShowPinConfirm] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState<WithdrawStep>('method');
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     if (paypalEmail && !destinationEmail) {
@@ -36,11 +94,14 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
   const reset = () => {
     setMethod(null);
     setAmount('');
+    setPhoneNumber('');
+    setSelectedOperator('');
     setDestinationEmail(paypalEmail);
     setError('');
     setStep('method');
     setIsProcessing(false);
     setShowPinConfirm(false);
+    setSuccessMessage('');
   };
 
   const handleClose = () => {
@@ -51,6 +112,58 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
   if (!isOpen) return null;
 
   const selectedAmount = parseFloat(amount || '0');
+  const withdrawalFee = getWithdrawalFee(selectedAmount, currency);
+  const detectedOperator = detectOperatorFromPhone(phoneNumber);
+  const selectedOperatorDetails = MOBILE_MONEY_OPERATORS.find((operator) => operator.id === selectedOperator);
+  const formattedAmount = formatMoney(selectedAmount, currency, symbol);
+  const formattedFee = formatMoney(withdrawalFee.feeAmount, currency, symbol);
+  const formattedTotalDebit = formatMoney(withdrawalFee.totalDebit, currency, symbol);
+
+  const handlePhoneNumberChange = (value: string) => {
+    setPhoneNumber(value);
+    setError('');
+
+    const operator = detectOperatorFromPhone(value);
+    const nationalDigits = getCongoleseNationalDigits(value);
+
+    if (operator) {
+      setSelectedOperator(operator);
+    } else if (nationalDigits.length >= 2) {
+      setSelectedOperator('');
+    }
+  };
+
+  const postJson = async (url: string, token: string, payload: Record<string, any>) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await response.text().catch(() => '');
+    const normalizedText = rawText.replace(/\s+/g, ' ').trim();
+    let data: any = null;
+
+    try {
+      data = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok || data?.success === false) {
+      throw new Error(data?.error || data?.message || normalizedText || `Erreur serveur retrait (${response.status}).`);
+    }
+
+    if (!data) {
+      throw new Error('Réponse retrait invalide.');
+    }
+
+    return data;
+  };
 
   const validateWithdraw = () => {
     setError('');
@@ -70,13 +183,40 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
       return false;
     }
 
-    if (selectedAmount > (user.balance || 0)) {
-      setError('Solde insuffisant.');
+    if (method === 'paypal' && !destinationEmail.trim()) {
+      setError('Veuillez renseigner le compte PayPal.');
       return false;
     }
 
-    if (method === 'paypal' && !destinationEmail.trim()) {
-      setError('Veuillez renseigner le compte PayPal.');
+    if (method === 'moni-wallet') {
+      if (!['USD', 'EUR', 'CDF'].includes(currency)) {
+        setError('Cette devise n’est pas prise en charge pour le retrait Mobile Money.');
+        return false;
+      }
+
+      if (selectedAmount < withdrawalFee.minimum) {
+        setError(`Montant minimum: ${withdrawalFee.minimum} ${currency}.`);
+        return false;
+      }
+
+      if (!phoneNumber.trim() || getCongoleseNationalDigits(phoneNumber).length < 9) {
+        setError('Veuillez renseigner le numéro Mobile Money.');
+        return false;
+      }
+
+      if (!selectedOperator) {
+        setError('Veuillez choisir l’opérateur Mobile Money.');
+        return false;
+      }
+
+      if (withdrawalFee.totalDebit > (user.balance || 0)) {
+        setError('Solde insuffisant frais inclus.');
+        return false;
+      }
+    }
+
+    if (method === 'paypal' && selectedAmount > (user.balance || 0)) {
+      setError('Solde insuffisant.');
       return false;
     }
 
@@ -97,49 +237,30 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
     setStep('processing');
 
     try {
+      if (!firebaseUser) {
+        throw new Error('Utilisateur non authentifié.');
+      }
+
+      const token = await firebaseUser.getIdToken();
+
       if (method === 'paypal') {
-        if (!firebaseUser) {
-          throw new Error('Utilisateur non authentifié.');
-        }
-
-        const token = await firebaseUser.getIdToken();
-        const response = await fetch('/api/paypal/payout/create', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            amount: selectedAmount,
-            currency,
-            receiverEmail: destinationEmail,
-          }),
+        const payload = await postJson('/api/paypal/payout/create', token, {
+          amount: selectedAmount,
+          currency,
+          receiverEmail: destinationEmail,
         });
-        const payload = await response.json().catch(() => null);
 
-        if (!response.ok || payload?.success === false) {
-          const debugId = payload?.debugId ? ` Debug ID PayPal: ${payload.debugId}.` : '';
-          const paypalName = payload?.paypalErrorName ? ` (${payload.paypalErrorName})` : '';
-          throw new Error(`${payload?.error || `Erreur PayPal ${response.status}`}${paypalName}.${debugId}`.trim());
-        }
+        setSuccessMessage(payload?.message || `Demande PayPal enregistrée pour ${formattedAmount}.`);
       } else {
-        await performTransfer(
-          user.uid,
-          null,
-          selectedAmount,
-          'withdraw',
-          {
-            title: 'Retrait portefeuille',
-            description: 'Depuis le portefeuille Moni',
-            icon: 'fas fa-wallet',
-            color: '#EF476F',
-            reference: `WTH-${Date.now()}`,
-            metadata: {
-              method,
-              currency
-            }
-          }
+        const payload = await postJson('/api/maxicash/withdraw/mobile-money', token, {
+          amount: selectedAmount,
+          currency,
+          phoneNumber,
+          operator: selectedOperator,
+        });
+
+        setSuccessMessage(
+          `${formatMoney(payload.withdrawnAmount || selectedAmount, currency, symbol)} envoyés vers ${payload.operatorLabel || selectedOperatorDetails?.name || 'Mobile Money'}. Frais: ${formatMoney(payload.feeAmount || withdrawalFee.feeAmount, currency, symbol)}.`
         );
       }
 
@@ -161,8 +282,8 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
     {
       id: 'moni-wallet' as const,
       title: 'Mon portefeuille Moni',
-      subtitle: 'Retirer depuis votre solde Moni',
-      icon: 'fas fa-wallet',
+      subtitle: 'Vers Mobile Money instantanément',
+      icon: 'fas fa-mobile-alt',
       color: '#00F5D4'
     },
     {
@@ -258,6 +379,62 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
                   />
                 </div>
               )}
+
+              {method === 'moni-wallet' && (
+                <>
+                  <div>
+                    <label className="text-moni-gray text-xs font-semibold mb-2 block">Numéro Mobile Money</label>
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(event) => handlePhoneNumberChange(event.target.value)}
+                      placeholder="+243 8X XXX XXXX"
+                      className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent"
+                    />
+                    {detectedOperator && (
+                      <p className="text-moni-accent text-xs mt-2">
+                        {MOBILE_MONEY_OPERATORS.find((operator) => operator.id === detectedOperator)?.name} détecté
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-moni-gray text-xs font-semibold mb-2 block">Opérateur</label>
+                    <select
+                      value={selectedOperator}
+                      onChange={(event) => {
+                        setSelectedOperator(event.target.value as MobileMoneyOperatorId);
+                        setError('');
+                      }}
+                      className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white focus:outline-none focus:border-moni-accent"
+                    >
+                      <option value="">Choisir l’opérateur</option>
+                      {MOBILE_MONEY_OPERATORS.map((operator) => (
+                        <option key={operator.id} value={operator.id}>
+                          {operator.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedAmount > 0 && (
+                    <div className="bg-moni-bg border border-white/10 rounded-xl p-3 space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-moni-gray">Montant reçu</span>
+                        <span className="text-moni-white font-semibold">{formattedAmount}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-moni-gray">Frais Moni ({Math.round(withdrawalFee.feeRate * 100)}%)</span>
+                        <span className="text-moni-white font-semibold">{formattedFee}</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-2 border-t border-white/10">
+                        <span className="text-moni-white font-semibold">Débit total</span>
+                        <span className="text-moni-accent font-bold">{formattedTotalDebit}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {error && (
@@ -307,9 +484,10 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
             </div>
             <h3 className="text-moni-white font-semibold text-lg mb-2">Retrait enregistré</h3>
             <p className="text-moni-gray text-xs text-center mb-4">
-              {method === 'paypal'
-                ? `${symbol}${selectedAmount.toFixed(2)} envoyés vers PayPal.`
-                : `${symbol}${selectedAmount.toFixed(2)} débités de votre portefeuille.`}
+              {successMessage ||
+                (method === 'paypal'
+                  ? `${formattedAmount} enregistrés vers PayPal.`
+                  : `${formattedAmount} envoyés vers Mobile Money.`)}
             </p>
             <button
               onClick={handleClose}
@@ -327,8 +505,12 @@ const WithdrawModal: React.FC<WithdrawModalProps> = ({ isOpen, onClose, onWithdr
         onClose={() => setShowPinConfirm(false)}
         onConfirmed={executeWithdraw}
         title="Confirmer le retrait"
-        description={method === 'paypal' ? 'Cette opération enverra le retrait vers PayPal.' : 'Cette opération débitera votre portefeuille Moni.'}
-        amountLabel={amount ? `${symbol}${selectedAmount.toFixed(2)}` : undefined}
+        description={
+          method === 'paypal'
+            ? 'Cette demande PayPal sera traitée manuellement.'
+            : `Envoi vers ${selectedOperatorDetails?.name || 'Mobile Money'} avec frais Moni inclus.`
+        }
+        amountLabel={amount ? (method === 'moni-wallet' ? formattedTotalDebit : formattedAmount) : undefined}
         confirmLabel="Retirer"
       />
     </div>

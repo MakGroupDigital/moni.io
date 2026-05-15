@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const localApiRoutes: Record<string, string> = {
   '/api/maxicash/deposit/initiate': '/api/maxicash-deposit-initiate.js',
   '/api/maxicash/deposit/status': '/api/maxicash-deposit-status.js',
+  '/api/maxicash/withdraw/mobile-money': '/api/maxicash-withdraw-mobile-money.js',
   '/api/paypal/link/start': '/api/paypal-link-start.js',
   '/api/paypal/link/complete': '/api/paypal-link-complete.js',
   '/api/paypal/payout/create': '/api/paypal-payout-create.js',

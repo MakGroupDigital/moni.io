@@ -26,6 +26,10 @@
       "destination": "/api/maxicash-deposit-status"
     },
     {
+      "source": "/api/maxicash/withdraw/mobile-money",
+      "destination": "/api/maxicash-withdraw-mobile-money"
+    },
+    {
       "source": "/api/paypal/link/start",
       "destination": "/api/paypal-link-start"
     },
