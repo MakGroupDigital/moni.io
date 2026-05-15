@@ -38,8 +38,8 @@ function getMaxiCashWithdrawConfig() {
 
   return {
     environment,
-    integratorUsername: process.env.MAXICASH_INTEGRATOR_USERNAME || process.env.MAXICASH_MERCHANT_ID || '',
-    integratorPassword: process.env.MAXICASH_INTEGRATOR_PASSWORD || process.env.MAXICASH_MERCHANT_PASSWORD || '',
+    integratorUsername: process.env.MAXICASH_INTEGRATOR_USERNAME || '',
+    integratorPassword: process.env.MAXICASH_INTEGRATOR_PASSWORD || '',
     loginUrl:
       process.env.MAXICASH_LOGIN_URL ||
       (environment === 'live'
@@ -55,7 +55,7 @@ function getMaxiCashWithdrawConfig() {
 
 function assertConfig(config) {
   if (!config.integratorUsername || !config.integratorPassword) {
-    throw new Error('Configuration MaxiCash retrait manquante: MAXICASH_INTEGRATOR_USERNAME et MAXICASH_INTEGRATOR_PASSWORD requis.');
+    throw new Error('Configuration MaxiCash retrait manquante: ajoutez MAXICASH_INTEGRATOR_USERNAME et MAXICASH_INTEGRATOR_PASSWORD fournis pour TopUpMobileMoney.');
   }
 }
 
@@ -133,11 +133,18 @@ async function getMaxiCashToken(config) {
   const token = String(payload?.ResponseData || payload?.SessionToken || '').trim();
 
   if (!response.ok || !isProviderSuccess(payload) || !token) {
-    throw new MaxiCashWithdrawError(getProviderErrorMessage(payload, `Login MaxiCash refusé (${response.status}).`), {
+    const providerMessage = getProviderErrorMessage(payload, `Login MaxiCash refusé (${response.status}).`);
+    const isInvalidCredentials = providerMessage.toLowerCase().includes('invalid credentials');
+    throw new MaxiCashWithdrawError(
+      isInvalidCredentials
+        ? 'Identifiants intégrateur MaxiCash invalides pour TopUpMobileMoney. Vérifiez MAXICASH_INTEGRATOR_USERNAME et MAXICASH_INTEGRATOR_PASSWORD.'
+        : providerMessage,
+      {
       status: response.ok ? 502 : response.status,
       payload,
       step: 'login',
-    });
+      }
+    );
   }
 
   return { token, payload };
