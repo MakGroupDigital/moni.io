@@ -336,3 +336,5 @@ async function handler(req, res) {
     return sendJson(res, status, { success: false, error: message });
   }
 }
+
+module.exports = handler;
