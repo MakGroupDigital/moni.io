@@ -1,14 +1,17 @@
 import path from 'path';
+import { createRequire } from 'module';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const require = createRequire(import.meta.url);
+
 const localApiRoutes: Record<string, string> = {
-  '/api/maxicash/deposit/initiate': '/api/maxicash/deposit/initiate.ts',
-  '/api/maxicash/deposit/status': '/api/maxicash/deposit/status.ts',
-  '/api/paypal/link/start': '/api/paypal/link/start.ts',
-  '/api/paypal/link/complete': '/api/paypal/link/complete.ts',
-  '/api/paypal/payout/create': '/api/paypal/payout/create.ts',
+  '/api/maxicash/deposit/initiate': '/api/maxicash/deposit/initiate.js',
+  '/api/maxicash/deposit/status': '/api/maxicash/deposit/status.js',
+  '/api/paypal/link/start': '/api/paypal/link/start.js',
+  '/api/paypal/link/complete': '/api/paypal/link/complete.js',
+  '/api/paypal/payout/create': '/api/paypal/payout/create.js',
 };
 
 async function readRequestBody(req: IncomingMessage) {
@@ -57,8 +60,17 @@ function localApiPlugin(): Plugin {
 
         try {
           const body = await readRequestBody(req);
-          const apiModule = await server.ssrLoadModule(modulePath);
-          const handler = apiModule.default;
+          const absoluteModulePath = path.resolve(__dirname, modulePath.replace(/^\//, ''));
+          let apiModule: any;
+
+          if (modulePath.endsWith('.js')) {
+            delete require.cache[require.resolve(absoluteModulePath)];
+            apiModule = require(absoluteModulePath);
+          } else {
+            apiModule = await server.ssrLoadModule(modulePath);
+          }
+
+          const handler = apiModule.default || apiModule;
 
           if (typeof handler !== 'function') {
             throw new Error(`Aucun handler API pour ${pathname}`);
