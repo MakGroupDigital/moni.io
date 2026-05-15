@@ -1,5 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AuthUser } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { getUserPinState, isValidPin, setTransactionPin } from '../lib/pinUtils';
+import {
+  disableBiometricAuthenticator,
+  getBiometricAuthState,
+  registerBiometricAuthenticator
+} from '../lib/biometricAuth';
+import { getLegalDocument, legalDocuments, type LegalDocumentId } from '../lib/legalContent';
 
 interface PersonalInfoModalProps {
   isOpen: boolean;
@@ -64,27 +72,79 @@ interface SecurityModalProps {
 }
 
 export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose }) => {
+  const { user } = useAuth();
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [pinSet, setPinSet] = useState(false);
+  const [hasExistingPin, setHasExistingPin] = useState(false);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSetPin = () => {
-    if (pin.length < 4) {
-      alert('Le PIN doit contenir au moins 4 chiffres');
+  useEffect(() => {
+    let active = true;
+
+    const loadPin = async () => {
+      if (!isOpen || !user?.uid) return;
+
+      setError('');
+      setPinSet(false);
+
+      try {
+        const pinState = await getUserPinState(user.uid);
+        if (active) {
+          setHasExistingPin(pinState.exists);
+        }
+      } catch (err) {
+        console.error('Security PIN load error:', err);
+        if (active) {
+          setError('Impossible de charger l’état du PIN.');
+        }
+      }
+    };
+
+    loadPin();
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen, user?.uid]);
+
+  const handleSetPin = async () => {
+    setError('');
+
+    if (!user?.uid) {
+      setError('Utilisateur non authentifié.');
       return;
     }
+
+    if (!isValidPin(pin)) {
+      setError('Le PIN doit contenir 4 à 6 chiffres.');
+      return;
+    }
+
     if (pin !== confirmPin) {
-      alert('Les PINs ne correspondent pas');
+      setError('Les PINs ne correspondent pas.');
       return;
     }
-    localStorage.setItem('moni_pin', pin);
-    setPinSet(true);
-    setPin('');
-    setConfirmPin('');
-    setTimeout(() => {
-      onClose();
-    }, 1500);
+
+    setIsSaving(true);
+
+    try {
+      await setTransactionPin(user.uid, pin);
+      setPinSet(true);
+      setHasExistingPin(true);
+      setPin('');
+      setConfirmPin('');
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err: any) {
+      console.error('Security PIN save error:', err);
+      setError(err?.message || 'Impossible de définir le PIN.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -106,6 +166,15 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
           </div>
         ) : (
           <div className="space-y-4 mb-6">
+            {hasExistingPin && (
+              <div className="bg-moni-bg rounded-2xl p-4 border border-white/10">
+                <div className="flex items-center gap-3">
+                  <i className="fas fa-lock text-moni-accent"></i>
+                  <p className="text-moni-white text-sm">Un PIN est déjà défini. La saisie ci-dessous le remplace.</p>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="text-moni-gray text-xs font-semibold mb-2 block">Nouveau PIN (4-6 chiffres)</label>
               <div className="relative">
@@ -139,11 +208,17 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
             <div className="bg-moni-bg rounded-2xl p-4">
               <p className="text-moni-gray text-xs mb-2">Conseils de sécurité</p>
               <ul className="text-moni-gray text-xs space-y-1">
-                <li>• Utilisez un PIN unique et facile à retenir</li>
-                <li>• Ne partagez jamais votre PIN</li>
-                <li>• Changez votre PIN régulièrement</li>
+                <li>Utilisez un PIN unique et facile à retenir</li>
+                <li>Ne partagez jamais votre PIN</li>
+                <li>Changez votre PIN régulièrement</li>
               </ul>
             </div>
+
+            {error && (
+              <div className="bg-red-500/20 border border-red-500 rounded-xl p-3">
+                <p className="text-red-200 text-xs">{error}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -157,9 +232,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
           {!pinSet && (
             <button
               onClick={handleSetPin}
+              disabled={isSaving}
               className="flex-1 p-3 bg-moni-accent text-moni-bg rounded-xl font-semibold hover:bg-moni-accent/90 transition-all"
             >
-              Définir le PIN
+              {isSaving ? 'Enregistrement...' : 'Définir le PIN'}
             </button>
           )}
         </div>
@@ -244,20 +320,92 @@ interface BiometryModalProps {
 }
 
 export const BiometryModal: React.FC<BiometryModalProps> = ({ isOpen, onClose }) => {
-  const [biometry, setBiometry] = useState({
-    fingerprint: false,
-    faceId: false
-  });
+  const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [available, setAvailable] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-  const handleToggle = (key: keyof typeof biometry) => {
-    setBiometry(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
-    localStorage.setItem('moni_biometry', JSON.stringify({
-      ...biometry,
-      [key]: !biometry[key]
-    }));
+  useEffect(() => {
+    let active = true;
+
+    const loadBiometry = async () => {
+      if (!isOpen || !user?.uid) return;
+
+      setIsLoading(true);
+      setMessage('');
+      setError('');
+
+      try {
+        const state = await getBiometricAuthState(user.uid);
+        if (!active) return;
+
+        setAvailable(state.available);
+        setEnabled(state.enabled);
+        if (!state.available && state.reason) {
+          setError(state.reason);
+        }
+      } catch (err: any) {
+        console.error('Biometry load error:', err);
+        if (active) {
+          setAvailable(false);
+          setEnabled(false);
+          setError(err?.message || 'Impossible de vérifier la biométrie.');
+        }
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+
+    loadBiometry();
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen, user?.uid]);
+
+  const handleEnable = async () => {
+    if (!user?.uid) {
+      setError('Utilisateur non authentifié.');
+      return;
+    }
+
+    setIsSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      await registerBiometricAuthenticator(user.uid, user.displayName, user.email);
+      setEnabled(true);
+      setAvailable(true);
+      setMessage('Biométrie activée. Le téléphone demandera Face ID, empreinte ou le déverrouillage système selon l’appareil.');
+    } catch (err: any) {
+      console.error('Biometry enable error:', err);
+      setError(err?.message || 'Activation biométrique impossible.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    if (!user?.uid) return;
+
+    setIsSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      await disableBiometricAuthenticator(user.uid);
+      setEnabled(false);
+      setMessage('Biométrie désactivée. L’accès se fera uniquement par PIN.');
+    } catch (err: any) {
+      console.error('Biometry disable error:', err);
+      setError(err?.message || 'Désactivation biométrique impossible.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -272,36 +420,62 @@ export const BiometryModal: React.FC<BiometryModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
-        <div className="space-y-3 mb-6">
-          <button
-            onClick={() => handleToggle('fingerprint')}
-            className="w-full flex justify-between items-center p-4 bg-moni-bg rounded-2xl border border-white/10 hover:bg-white/5 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <i className="fas fa-fingerprint text-moni-accent w-5 text-center"></i>
-              <span className="text-moni-white text-sm">Empreinte digitale</span>
+        <div className="space-y-4 mb-6">
+          <div className="bg-moni-bg rounded-2xl p-4 border border-white/10">
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-2xl bg-moni-accent/15 flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-fingerprint text-moni-accent text-lg"></i>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-moni-white text-sm font-semibold">Authentification système</p>
+                <p className="text-moni-gray text-xs mt-1">
+                  Moni utilise la biométrie réelle du téléphone via WebAuthn. Selon l’appareil, le système affiche Face ID, empreinte ou le déverrouillage local.
+                </p>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${enabled ? 'bg-green-400' : available ? 'bg-moni-accent' : 'bg-red-400'}`}></span>
+                  <span className="text-moni-gray text-xs">
+                    {isLoading ? 'Vérification...' : enabled ? 'Activée' : available ? 'Disponible' : 'Non disponible'}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className={`w-12 h-6 rounded-full transition-all ${biometry.fingerprint ? 'bg-moni-accent' : 'bg-white/10'}`}>
-              <div className={`w-5 h-5 rounded-full bg-moni-white transition-transform ${biometry.fingerprint ? 'translate-x-6' : 'translate-x-0.5'}`}></div>
-            </div>
-          </button>
+          </div>
 
-          <button
-            onClick={() => handleToggle('faceId')}
-            className="w-full flex justify-between items-center p-4 bg-moni-bg rounded-2xl border border-white/10 hover:bg-white/5 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <i className="fas fa-face-smile text-moni-accent w-5 text-center"></i>
-              <span className="text-moni-white text-sm">Reconnaissance faciale</span>
+          {message && (
+            <div className="bg-green-500/15 border border-green-500/50 rounded-xl p-3">
+              <p className="text-green-100 text-xs">{message}</p>
             </div>
-            <div className={`w-12 h-6 rounded-full transition-all ${biometry.faceId ? 'bg-moni-accent' : 'bg-white/10'}`}>
-              <div className={`w-5 h-5 rounded-full bg-moni-white transition-transform ${biometry.faceId ? 'translate-x-6' : 'translate-x-0.5'}`}></div>
-            </div>
-          </button>
-        </div>
+          )}
 
-        <div className="bg-moni-bg rounded-2xl p-4 mb-6">
-          <p className="text-moni-gray text-xs">La biométrie vous permet de vous authentifier rapidement et en toute sécurité.</p>
+          {error && (
+            <div className="bg-red-500/20 border border-red-500/60 rounded-xl p-3">
+              <p className="text-red-100 text-xs">{error}</p>
+            </div>
+          )}
+
+          {enabled ? (
+            <button
+              onClick={handleDisable}
+              disabled={isSaving}
+              className="w-full p-3 bg-white/10 text-moni-white rounded-xl font-semibold hover:bg-white/20 transition-all disabled:opacity-50"
+            >
+              {isSaving ? 'Traitement...' : 'Désactiver'}
+            </button>
+          ) : (
+            <button
+              onClick={handleEnable}
+              disabled={!available || isSaving || isLoading}
+              className="w-full p-3 bg-moni-accent text-moni-bg rounded-xl font-semibold hover:bg-moni-accent/90 transition-all disabled:opacity-50"
+            >
+              {isSaving ? 'Activation...' : 'Activer la biométrie'}
+            </button>
+          )}
+
+          <div className="bg-moni-bg rounded-2xl p-4">
+            <p className="text-moni-gray text-xs">
+              Le PIN reste obligatoire comme méthode de secours et sera demandé si la biométrie n’est pas disponible.
+            </p>
+          </div>
         </div>
 
         <button
@@ -438,40 +612,98 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
 interface TermsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialDocumentId?: LegalDocumentId;
 }
 
-export const TermsModal: React.FC<TermsModalProps> = ({ isOpen, onClose }) => {
+export const TermsModal: React.FC<TermsModalProps> = ({ isOpen, onClose, initialDocumentId = 'terms' }) => {
+  const [activeDocumentId, setActiveDocumentId] = useState<LegalDocumentId>(initialDocumentId);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveDocumentId(initialDocumentId);
+    }
+  }, [initialDocumentId, isOpen]);
+
   if (!isOpen) return null;
+
+  const activeDocument = getLegalDocument(activeDocumentId);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end z-50 rounded-[40px]">
       <div className="w-full bg-moni-card rounded-t-3xl p-6 max-h-[90%] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-moni-white font-montserrat">Conditions Générales</h2>
+        <div className="flex justify-between items-start gap-4 mb-5">
+          <div>
+            <p className="text-moni-accent text-[10px] font-bold uppercase tracking-widest mb-1">Documents légaux</p>
+            <h2 className="text-xl font-bold text-moni-white font-montserrat">{activeDocument.title}</h2>
+            <p className="text-moni-gray text-xs mt-1">Mis à jour le {activeDocument.lastUpdated}</p>
+          </div>
           <button onClick={onClose} className="text-moni-gray hover:text-moni-white">
             <i className="fas fa-times text-xl"></i>
           </button>
         </div>
 
-        <div className="space-y-4 mb-6 text-moni-gray text-xs">
-          <div>
-            <h3 className="text-moni-white font-semibold mb-2">1. Acceptation des conditions</h3>
-            <p>En utilisant Moni.io, vous acceptez ces conditions générales et notre politique de confidentialité.</p>
-          </div>
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
+          {legalDocuments.map((document) => (
+            <button
+              key={document.id}
+              onClick={() => setActiveDocumentId(document.id)}
+              className={`px-3 py-2 rounded-full text-[11px] font-semibold whitespace-nowrap border transition-all ${
+                activeDocumentId === document.id
+                  ? 'bg-moni-accent text-moni-bg border-moni-accent'
+                  : 'bg-moni-bg text-moni-gray border-white/10'
+              }`}
+              type="button"
+            >
+              {document.shortTitle}
+            </button>
+          ))}
+        </div>
 
-          <div>
-            <h3 className="text-moni-white font-semibold mb-2">2. Utilisation du service</h3>
-            <p>Vous vous engagez à utiliser Moni.io uniquement à des fins légales et conformément à toutes les lois applicables.</p>
-          </div>
+        <div className="bg-moni-bg rounded-2xl p-4 mb-5 border border-white/10">
+          <p className="text-moni-white text-sm font-semibold mb-2">{activeDocument.summary}</p>
+          <p className="text-moni-gray text-xs">
+            Moni.io est un produit et une marque déposée de MboMa & Co. Site institutionnel: mboma.org.
+            Ces textes doivent être validés par le conseil juridique de la société avant publication définitive.
+          </p>
+          <a
+            href={activeDocument.publicPath}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 text-moni-accent text-xs font-semibold mt-3"
+          >
+            Ouvrir la page publique
+            <i className="fas fa-arrow-up-right-from-square text-[10px]"></i>
+          </a>
+        </div>
 
-          <div>
-            <h3 className="text-moni-white font-semibold mb-2">3. Responsabilité</h3>
-            <p>Moni.io n'est pas responsable des pertes ou dommages résultant de l'utilisation du service.</p>
-          </div>
+        <div className="space-y-5 mb-6 text-moni-gray text-xs leading-relaxed">
+          {activeDocument.sections.map((section, index) => (
+            <section key={`${activeDocument.id}-${section.title}`} className="bg-moni-bg/70 rounded-2xl p-4 border border-white/10">
+              <h3 className="text-moni-white font-semibold mb-3">
+                {index + 1}. {section.title}
+              </h3>
+              <div className="space-y-3">
+                {section.body.map((paragraph) => (
+                  <p key={paragraph}>{paragraph}</p>
+                ))}
+              </div>
+              {section.items && (
+                <ul className="mt-3 space-y-2 list-disc list-inside text-moni-gray">
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
 
-          <div>
-            <h3 className="text-moni-white font-semibold mb-2">4. Modifications</h3>
-            <p>Nous nous réservons le droit de modifier ces conditions à tout moment.</p>
+          <div className="bg-moni-accent/10 border border-moni-accent/30 rounded-2xl p-4">
+            <p className="text-moni-accent font-semibold mb-2">Note importante</p>
+            <p>
+              Ce document constitue une base opérationnelle pour Moni.io. Il ne remplace pas une validation juridique locale,
+              notamment pour les obligations liées aux services de paiement, à la protection des données, aux cookies,
+              à la conformité financière et aux règles applicables dans chaque pays desservi.
+            </p>
           </div>
         </div>
 

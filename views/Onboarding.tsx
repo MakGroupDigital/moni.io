@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { renderBrandedQRCodeToCanvas } from '../lib/qrBranding';
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -8,6 +9,27 @@ interface OnboardingProps {
 const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!user || !qrCanvasRef.current) return;
+
+    const qrData = JSON.stringify({
+      moniNumber: user.moniNumber,
+      displayName: user.displayName,
+      email: user.email,
+      photoURL: user.photoURL,
+      uid: user.uid
+    });
+
+    renderBrandedQRCodeToCanvas(qrCanvasRef.current, qrData, {
+      width: 260,
+      margin: 1,
+      darkColor: '#000000',
+    }).catch((error) => {
+      console.error('Error generating onboarding QR code:', error);
+    });
+  }, [currentStep, user]);
 
   const steps = [
     {
@@ -28,8 +50,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
       description: 'Partagez votre code QR pour que d\'autres vous trouvent facilement',
       content: (
         <div className="bg-moni-card rounded-2xl p-6 border border-white/10 flex flex-col items-center">
-          {user?.qrCode && (
-            <img src={user.qrCode} alt="QR Code" className="w-48 h-48 rounded-xl mb-4" />
+          {user && (
+            <canvas ref={qrCanvasRef} className="w-48 h-48 rounded-xl mb-4" />
           )}
           <p className="text-moni-gray text-xs text-center">Contient votre numéro Moni, email et nom</p>
         </div>

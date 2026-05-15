@@ -8,6 +8,7 @@ export interface Transaction {
   icon: string;
   color: string;
   type: 'positive' | 'negative';
+  status?: 'pending' | 'completed' | 'failed';
 }
 
 export interface FirestoreTransaction {
@@ -152,6 +153,16 @@ export interface AuthUser {
   createdAt: Date;
   balance: number;
   paypalBalance: number;
+  paypalLinked?: boolean;
+  paypalEmail?: string;
+  paypalPayerId?: string;
+  biometricAuth?: {
+    enabled?: boolean;
+    credentialId?: string;
+    platform?: string;
+  };
+  currency?: Currency;
+  preferredCurrency?: Currency;
 }
 
 export interface MonthlyStats {

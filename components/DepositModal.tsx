@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { MOBILE_MONEY_PROVIDERS } from '../types';
 import AgentQRScanner from './AgentQRScanner';
 import { useAuth } from '../contexts/AuthContext';
 import { performTransfer } from '../lib/transactionUtils';
+import { useCurrency } from '../App';
 
 interface DepositModalProps {
   isOpen: boolean;
@@ -11,27 +11,71 @@ interface DepositModalProps {
 }
 
 type DepositMethod = 'mobile-money' | 'moni-agent' | null;
+type DepositStep = 'method' | 'form' | 'processing' | 'success' | 'pending';
+type PaymentCurrency = 'USD' | 'CDF';
+
+const MAXICASH_OPERATORS = [
+  { id: 'mpesa', name: 'M-Pesa', color: '#00AA00' },
+  { id: 'airtel', name: 'Airtel Money', color: '#E60000' },
+  { id: 'orange', name: 'Orange Money', color: '#FF6600' },
+  { id: 'africell', name: 'Africell Money', color: '#0066CC' },
+] as const;
+
+type MaxiCashOperatorId = typeof MAXICASH_OPERATORS[number]['id'];
+
+const DRC_OPERATOR_PREFIXES: Record<MaxiCashOperatorId, string[]> = {
+  mpesa: ['81', '82', '83', '86'],
+  airtel: ['97', '98', '99'],
+  orange: ['80', '84', '85', '89'],
+  africell: ['90', '91'],
+};
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const getCongoleseNationalDigits = (value: string) => {
+  let digits = value.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('243')) return digits.slice(3);
+  if (digits.startsWith('0')) return digits.slice(1);
+  return digits;
+};
+
+const detectOperatorFromPhone = (value: string): MaxiCashOperatorId | '' => {
+  const nationalDigits = getCongoleseNationalDigits(value);
+  if (nationalDigits.length < 2) return '';
+
+  const prefix = nationalDigits.slice(0, 2);
+  const match = MAXICASH_OPERATORS.find((operator) => DRC_OPERATOR_PREFIXES[operator.id].includes(prefix));
+  return match?.id || '';
+};
 
 const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositSuccess }) => {
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
+  const { currency } = useCurrency();
   const [method, setMethod] = useState<DepositMethod>(null);
   const [amount, setAmount] = useState('');
   const [selectedOperator, setSelectedOperator] = useState('');
+  const [paymentCurrency, setPaymentCurrency] = useState<PaymentCurrency>('USD');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [agentPhone, setAgentPhone] = useState('');
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState<'method' | 'form' | 'processing' | 'success'>('method');
+  const [processingMessage, setProcessingMessage] = useState('Veuillez patienter...');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [step, setStep] = useState<DepositStep>('method');
 
   const handleClose = () => {
     setMethod(null);
     setAmount('');
     setSelectedOperator('');
+    setPaymentCurrency('USD');
     setPhoneNumber('');
     setAgentPhone('');
     setShowQRScanner(false);
     setError('');
+    setProcessingMessage('Veuillez patienter...');
+    setSuccessMessage('');
     setStep('method');
     setIsProcessing(false);
     onClose();
@@ -42,14 +86,76 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
     setShowQRScanner(false);
   };
 
+  const handlePhoneNumberChange = (value: string) => {
+    setPhoneNumber(value);
+    setError('');
+
+    const detectedOperator = detectOperatorFromPhone(value);
+    const nationalDigits = getCongoleseNationalDigits(value);
+
+    if (detectedOperator) {
+      setSelectedOperator(detectedOperator);
+    } else if (nationalDigits.length >= 2) {
+      setSelectedOperator('');
+    }
+  };
+
   if (!isOpen) return null;
 
   if (showQRScanner) {
     return <AgentQRScanner onScan={handleQRScan} onClose={() => setShowQRScanner(false)} />;
   }
 
+  const postJson = async (url: string, token: string, payload: Record<string, any>) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const contentType = response.headers.get('content-type') || '';
+    const data = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
+
+    if (!response.ok || data?.success === false) {
+      throw new Error(
+        data?.error ||
+        data?.message ||
+        'Le service de dépôt n’est pas disponible en local. Relancez le serveur puis réessayez.'
+      );
+    }
+
+    if (!data) {
+      throw new Error('Réponse dépôt invalide. Relancez le serveur local puis réessayez.');
+    }
+
+    return data;
+  };
+
+  const pollDepositStatus = async (transactionId: string, token: string) => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await sleep(7000);
+      const status = await postJson('/api/maxicash/deposit/status', token, { transactionId });
+
+      if (status.transactionStatus === 'completed') {
+        return status;
+      }
+
+      if (status.transactionStatus === 'failed') {
+        throw new Error(status.error || status.message || 'Paiement refusé.');
+      }
+    }
+
+    return null;
+  };
+
+  const detectedOperator = detectOperatorFromPhone(phoneNumber);
+  const detectedOperatorDetails = MAXICASH_OPERATORS.find((provider) => provider.id === detectedOperator);
+  const phoneDigits = getCongoleseNationalDigits(phoneNumber);
+
   const handleDeposit = async () => {
-    if (!amount || (method === 'mobile-money' && !selectedOperator) || (method === 'moni-agent' && !agentPhone)) {
+    if (!amount || (method === 'mobile-money' && (!selectedOperator || !phoneNumber)) || (method === 'moni-agent' && !agentPhone)) {
       setError('Veuillez remplir tous les champs');
       return;
     }
@@ -68,8 +174,51 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
     setIsProcessing(true);
     setStep('processing');
     setError('');
+    setProcessingMessage(method === 'mobile-money' ? 'Envoi de la demande de confirmation...' : 'Veuillez patienter...');
 
     try {
+      if (method === 'mobile-money') {
+        if (!firebaseUser) {
+          throw new Error('Session expirée. Reconnectez-vous et réessayez.');
+        }
+
+        const token = await firebaseUser.getIdToken();
+        const initiation = await postJson('/api/maxicash/deposit/initiate', token, {
+          amount: depositAmount,
+          paymentCurrency,
+          walletCurrency: currency,
+          operator: selectedOperator,
+          phoneNumber,
+        });
+
+        if (initiation.transactionStatus === 'completed') {
+          setSuccessMessage(`${initiation.creditedAmount?.toLocaleString?.() || initiation.creditedAmount} ${initiation.walletCurrency || currency} ajoutés à votre portefeuille.`);
+          setStep('success');
+          setTimeout(() => {
+            onDepositSuccess?.();
+            handleClose();
+          }, 1800);
+          return;
+        }
+
+        setProcessingMessage('Confirmez le paiement sur votre téléphone.');
+        const completedStatus = await pollDepositStatus(initiation.transactionId, token);
+
+        if (completedStatus?.transactionStatus === 'completed') {
+          setSuccessMessage(`${completedStatus.creditedAmount?.toLocaleString?.() || completedStatus.creditedAmount} ${completedStatus.walletCurrency || currency} ajoutés à votre portefeuille.`);
+          setStep('success');
+          setTimeout(() => {
+            onDepositSuccess?.();
+            handleClose();
+          }, 1800);
+          return;
+        }
+
+        setStep('pending');
+        setProcessingMessage('Le paiement reste en attente. Votre solde sera crédité dès confirmation.');
+        return;
+      }
+
       await performTransfer(
         user.uid,
         null,
@@ -77,18 +226,18 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
         'deposit',
         {
           title: 'Dépôt',
-          description: method === 'mobile-money' ? `Via ${selectedOperator}` : 'Via agent Moni',
+          description: 'Via agent Moni',
           icon: 'fas fa-arrow-down',
           color: '#00F5D4',
           reference: `DEP-${Date.now()}`,
           metadata: {
             method,
-            operator: selectedOperator,
-            phoneNumber: method === 'mobile-money' ? phoneNumber : agentPhone
+            phoneNumber: agentPhone
           }
         }
       );
 
+      setSuccessMessage(`${depositAmount.toLocaleString()} ${currency} ajoutés à votre compte`);
       setStep('success');
       setTimeout(() => {
         onDepositSuccess?.();
@@ -122,6 +271,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
               <button
                 onClick={() => {
                   setMethod('mobile-money');
+                  setError('');
                   setStep('form');
                 }}
                 className="w-full p-4 bg-moni-bg rounded-2xl border border-white/10 hover:border-moni-accent hover:bg-white/5 transition-all flex items-center gap-4"
@@ -131,7 +281,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 </div>
                 <div className="text-left flex-1">
                   <h3 className="text-moni-white font-semibold text-sm">Mobile Money</h3>
-                  <p className="text-moni-gray text-xs">Orange Money, MTN, Airtel, etc.</p>
+                  <p className="text-moni-gray text-xs">M-Pesa, Airtel, Orange, Africell</p>
                 </div>
                 <i className="fas fa-chevron-right text-moni-gray"></i>
               </button>
@@ -139,6 +289,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
               <button
                 onClick={() => {
                   setMethod('moni-agent');
+                  setError('');
                   setStep('form');
                 }}
                 className="w-full p-4 bg-moni-bg rounded-2xl border border-white/10 hover:border-moni-accent hover:bg-white/5 transition-all flex items-center gap-4"
@@ -163,31 +314,35 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 <input
                   type="number"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setError('');
+                  }}
                   placeholder="Entrez le montant"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent"
                 />
+                <p className="text-moni-gray text-[10px] mt-2">
+                  Crédité dans votre portefeuille en {currency}.
+                </p>
               </div>
 
               <div>
-                <label className="text-moni-gray text-xs font-semibold mb-2 block">Opérateur Mobile Money</label>
+                <label className="text-moni-gray text-xs font-semibold mb-2 block">Devise</label>
                 <div className="grid grid-cols-2 gap-3">
-                  {Object.values(MOBILE_MONEY_PROVIDERS).map((provider) => (
+                  {(['USD', 'CDF'] as const).map((curr) => (
                     <button
-                      key={provider.id}
-                      onClick={() => setSelectedOperator(provider.name)}
-                      className={`p-3 rounded-xl border transition-all ${
-                        selectedOperator === provider.name
-                          ? 'bg-moni-accent/20 border-moni-accent'
-                          : 'bg-moni-bg border-white/10 hover:border-moni-accent/50'
+                      key={curr}
+                      onClick={() => {
+                        setPaymentCurrency(curr);
+                        setError('');
+                      }}
+                      className={`p-3 rounded-xl border text-sm font-semibold transition-all ${
+                        paymentCurrency === curr
+                          ? 'bg-moni-accent/20 border-moni-accent text-moni-accent'
+                          : 'bg-moni-bg border-white/10 text-moni-white hover:border-moni-accent/50'
                       }`}
                     >
-                      <div className="text-center">
-                        <div className="text-lg mb-1" style={{ color: provider.color }}>
-                          <i className={provider.icon}></i>
-                        </div>
-                        <p className="text-moni-white text-xs font-semibold">{provider.name}</p>
-                      </div>
+                      {curr}
                     </button>
                   ))}
                 </div>
@@ -198,10 +353,47 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 <input
                   type="tel"
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="+221 77 123 45 67"
+                  onChange={(e) => handlePhoneNumberChange(e.target.value)}
+                  placeholder="+243 8X XXX XX XX"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent"
                 />
+                {detectedOperatorDetails ? (
+                  <p className="text-moni-accent text-[10px] mt-2 flex items-center gap-1">
+                    <i className="fas fa-check-circle"></i>
+                    Réseau détecté : {detectedOperatorDetails.name}
+                  </p>
+                ) : phoneDigits.length >= 2 && !selectedOperator ? (
+                  <p className="text-yellow-300 text-[10px] mt-2">
+                    Réseau non détecté. Choisissez l'opérateur.
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="text-moni-gray text-xs font-semibold mb-2 block">Opérateur Mobile Money</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {MAXICASH_OPERATORS.map((provider) => (
+                    <button
+                      key={provider.id}
+                      onClick={() => {
+                        setSelectedOperator(provider.id);
+                        setError('');
+                      }}
+                      className={`p-3 rounded-xl border transition-all ${
+                        selectedOperator === provider.id
+                          ? 'bg-moni-accent/20 border-moni-accent'
+                          : 'bg-moni-bg border-white/10 hover:border-moni-accent/50'
+                      }`}
+                    >
+                      <div className="text-center">
+                        <div className="text-lg mb-1" style={{ color: provider.color }}>
+                          <i className="fas fa-mobile-alt"></i>
+                        </div>
+                        <p className="text-moni-white text-xs font-semibold">{provider.name}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {error && (
@@ -214,6 +406,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 <button
                   onClick={() => {
                     setMethod(null);
+                    setError('');
                     setStep('method');
                   }}
                   className="flex-1 p-3 bg-moni-bg border border-white/10 rounded-xl text-moni-white font-semibold hover:bg-white/5 transition-all"
@@ -239,7 +432,10 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 <input
                   type="number"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setError('');
+                  }}
                   placeholder="Entrez le montant"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent"
                 />
@@ -267,7 +463,10 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 <input
                   type="tel"
                   value={agentPhone}
-                  onChange={(e) => setAgentPhone(e.target.value)}
+                  onChange={(e) => {
+                    setAgentPhone(e.target.value);
+                    setError('');
+                  }}
                   placeholder="+221 77 123 45 67"
                   className="w-full bg-moni-bg border border-white/10 rounded-xl px-4 py-3 text-moni-white placeholder-moni-gray focus:outline-none focus:border-moni-accent"
                 />
@@ -283,6 +482,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
                 <button
                   onClick={() => {
                     setMethod(null);
+                    setError('');
                     setStep('method');
                   }}
                   className="flex-1 p-3 bg-moni-bg border border-white/10 rounded-xl text-moni-white font-semibold hover:bg-white/5 transition-all"
@@ -305,7 +505,7 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
               <i className="fas fa-spinner text-moni-accent text-2xl animate-spin"></i>
             </div>
             <h3 className="text-moni-white font-semibold text-lg mb-2">Dépôt en cours</h3>
-            <p className="text-moni-gray text-xs text-center">Veuillez patienter...</p>
+            <p className="text-moni-gray text-xs text-center">{processingMessage}</p>
           </div>
         ) : step === 'success' ? (
           <div className="flex flex-col items-center justify-center py-12">
@@ -314,8 +514,22 @@ const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositS
             </div>
             <h3 className="text-moni-white font-semibold text-lg mb-2">Dépôt réussi</h3>
             <p className="text-moni-gray text-xs text-center mb-4">
-              ${amount} ajoutés à votre compte
+              {successMessage || `${amount} ${currency} ajoutés à votre compte`}
             </p>
+            <button
+              onClick={handleClose}
+              className="w-full bg-moni-accent text-moni-bg py-3 rounded-xl font-semibold hover:bg-moni-accent/90 transition-all active:scale-95"
+            >
+              Fermer
+            </button>
+          </div>
+        ) : step === 'pending' ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="w-16 h-16 rounded-full bg-moni-accent/20 flex items-center justify-center mb-4">
+              <i className="fas fa-clock text-moni-accent text-2xl"></i>
+            </div>
+            <h3 className="text-moni-white font-semibold text-lg mb-2">Paiement en attente</h3>
+            <p className="text-moni-gray text-xs text-center mb-4">{processingMessage}</p>
             <button
               onClick={handleClose}
               className="w-full bg-moni-accent text-moni-bg py-3 rounded-xl font-semibold hover:bg-moni-accent/90 transition-all active:scale-95"

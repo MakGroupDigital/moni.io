@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import QRCode from 'qrcode';
 import { AuthUser } from '../types';
+import { renderBrandedQRCodeToCanvas } from '../lib/qrBranding';
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -22,19 +22,12 @@ const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, user }) => {
         uid: user.uid
       });
 
-      // Générer le QR code
-      QRCode.toCanvas(canvasRef.current, qrData, {
-        errorCorrectionLevel: 'H',
-        type: 'image/png',
-        quality: 0.95,
-        margin: 1,
+      renderBrandedQRCodeToCanvas(canvasRef.current, qrData, {
         width: 300,
-        color: {
-          dark: '#000000',
-          light: '#FFFFFF'
-        }
-      }, (error) => {
-        if (error) console.error('Error generating QR code:', error);
+        margin: 1,
+        darkColor: '#000000',
+      }).catch((error) => {
+        console.error('Error generating QR code:', error);
       });
     }
   }, [isOpen, user]);

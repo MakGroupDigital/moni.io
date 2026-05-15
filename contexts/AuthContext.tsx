@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
-import { AuthUser } from '../types';
+import { AuthUser, Currency } from '../types';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -19,6 +19,12 @@ const generateMoniNumber = (uid: string): string => {
   const hash = uid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const uniqueNumber = Math.abs(hash % 1000000).toString().padStart(6, '0');
   return `MN1000${uniqueNumber}`;
+};
+
+const normalizeCurrency = (value: unknown): Currency => {
+  return ['USD', 'EUR', 'CDF', 'XOF', 'FCFA'].includes(String(value))
+    ? (String(value) as Currency)
+    : 'USD';
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -44,6 +50,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             moniNumber,
             balance: 0,
             paypalBalance: 0,
+            paypalLinked: false,
+            currency: 'USD',
+            preferredCurrency: 'USD',
             createdAt: new Date()
           };
 
@@ -65,20 +74,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 moniNumber,
                 balance: 0,
                 paypalBalance: 0,
+                paypalLinked: false,
+                currency: 'USD',
+                preferredCurrency: 'USD',
                 createdAt: Timestamp.now()
               });
             } else {
               // Mettre à jour avec les données de Firestore
               const userData = userDoc.data();
               // S'assurer que le moniNumber et displayName sont définis
-              if (!userData?.moniNumber || !userData?.displayName) {
+              if (!userData?.moniNumber || !userData?.displayName || !userData?.currency || !userData?.preferredCurrency) {
                 await setDoc(userRef, { 
                   ...userData, 
                   moniNumber: userData?.moniNumber || moniNumber,
-                  displayName: userData?.displayName || fbUser.displayName || 'User'
+                  displayName: userData?.displayName || fbUser.displayName || 'User',
+                  currency: normalizeCurrency(userData?.currency || userData?.preferredCurrency),
+                  preferredCurrency: normalizeCurrency(userData?.preferredCurrency || userData?.currency)
                 }, { merge: true });
               }
               // Convertir les données correctement
+              const preferredCurrency = normalizeCurrency(userData?.preferredCurrency || userData?.currency);
               const convertedUser: AuthUser = {
                 uid: userData?.uid || fbUser.uid,
                 email: userData?.email || fbUser.email || '',
@@ -87,6 +102,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 moniNumber: userData?.moniNumber || moniNumber,
                 balance: userData?.balance || 0,
                 paypalBalance: userData?.paypalBalance || 0,
+                paypalLinked: Boolean(userData?.paypalLinked),
+                paypalEmail: userData?.paypalEmail || undefined,
+                paypalPayerId: userData?.paypalPayerId || undefined,
+                biometricAuth: userData?.biometricAuth || undefined,
+                currency: normalizeCurrency(userData?.currency || preferredCurrency),
+                preferredCurrency,
                 createdAt: userData?.createdAt?.toDate?.() || new Date()
               };
               setUser(convertedUser);
@@ -103,6 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (docSnapshot.exists()) {
                 const userData = docSnapshot.data();
                 // Convertir les données correctement
+                const preferredCurrency = normalizeCurrency(userData?.preferredCurrency || userData?.currency);
                 const convertedUser: AuthUser = {
                   uid: userData?.uid || fbUser.uid,
                   email: userData?.email || fbUser.email || '',
@@ -111,6 +133,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   moniNumber: userData?.moniNumber || moniNumber,
                   balance: userData?.balance || 0,
                   paypalBalance: userData?.paypalBalance || 0,
+                  paypalLinked: Boolean(userData?.paypalLinked),
+                  paypalEmail: userData?.paypalEmail || undefined,
+                  paypalPayerId: userData?.paypalPayerId || undefined,
+                  biometricAuth: userData?.biometricAuth || undefined,
+                  currency: normalizeCurrency(userData?.currency || preferredCurrency),
+                  preferredCurrency,
                   createdAt: userData?.createdAt?.toDate?.() || new Date()
                 };
                 setUser(convertedUser);
@@ -135,6 +163,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             moniNumber,
             balance: 0,
             paypalBalance: 0,
+            paypalLinked: false,
+            currency: 'USD',
+            preferredCurrency: 'USD',
             createdAt: new Date()
           };
           setUser(minimalUser);

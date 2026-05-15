@@ -3,6 +3,7 @@ import { P2PRequest } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { createP2PRequest, performTransfer, getReceivedP2PRequests } from '../lib/transactionUtils';
 import { useNotificationContext } from '../contexts/NotificationContext';
+import PinConfirmModal from './PinConfirmModal';
 
 interface P2PModalProps {
   isOpen: boolean;
@@ -12,6 +13,10 @@ interface P2PModalProps {
 }
 
 type P2PStep = 'method' | 'request' | 'send' | 'processing' | 'success' | 'all-requests' | 'pay-request';
+type PendingP2PAction =
+  | { type: 'direct-send' }
+  | { type: 'accept'; request: P2PRequest }
+  | { type: 'pay'; request: P2PRequest };
 
 const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2PSuccess }) => {
   const { user } = useAuth();
@@ -26,6 +31,8 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
   const [requests, setRequests] = useState<P2PRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<P2PRequest | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingP2PAction | null>(null);
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
 
   // Charger les demandes P2P reçues quand le modal s'ouvre
   useEffect(() => {
@@ -57,7 +64,14 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
     setMessage('');
     setErrorMsg('');
     setIsProcessing(false);
+    setPendingAction(null);
+    setShowPinConfirm(false);
     onClose();
+  };
+
+  const openPinForAction = (action: PendingP2PAction) => {
+    setPendingAction(action);
+    setShowPinConfirm(true);
   };
 
   const handleSendRequest = async () => {
@@ -119,6 +133,13 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
       return;
     }
 
+    openPinForAction({ type: 'accept', request });
+  };
+
+  const executeAcceptRequest = async (request: P2PRequest) => {
+    if (!user?.uid) return;
+
+    setShowPinConfirm(false);
     setIsProcessing(true);
     setStep('processing');
 
@@ -143,7 +164,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
       );
 
       setRequests(requests.map(r => 
-        r.id === requestId ? { ...r, status: 'accepted' as const } : r
+        r.id === request.id ? { ...r, status: 'accepted' as const } : r
       ));
       setStep('success');
       setTimeout(() => {
@@ -178,6 +199,13 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
       return;
     }
 
+    openPinForAction({ type: 'pay', request });
+  };
+
+  const executePayRequest = async (request: P2PRequest) => {
+    if (!user?.uid) return;
+
+    setShowPinConfirm(false);
     setIsProcessing(true);
     setStep('processing');
 
@@ -218,6 +246,99 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
       setIsProcessing(false);
     }
   };
+
+  const handleDirectSend = async () => {
+    setErrorMsg('');
+
+    if (!recipientNumber.trim()) {
+      setErrorMsg('Veuillez entrer un numéro Moni');
+      return;
+    }
+
+    if (!/^MN1000\d+$/.test(recipientNumber)) {
+      setErrorMsg('Format invalide. Le numéro doit commencer par MN1000');
+      return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      setErrorMsg('Veuillez entrer un montant valide');
+      return;
+    }
+
+    if (parseFloat(amount) > userBalance) {
+      setErrorMsg('Solde insuffisant');
+      return;
+    }
+
+    if (!user?.uid) {
+      setErrorMsg('Utilisateur non authentifié');
+      return;
+    }
+
+    openPinForAction({ type: 'direct-send' });
+  };
+
+  const executeDirectSend = async () => {
+    if (!user?.uid) return;
+
+    setShowPinConfirm(false);
+    setIsProcessing(true);
+    setStep('processing');
+
+    try {
+      await performTransfer(
+        user.uid,
+        recipientNumber,
+        parseFloat(amount),
+        'p2p-send',
+        {
+          title: 'Paiement P2P',
+          description: `À ${recipientNumber}`,
+          icon: 'fas fa-arrow-right',
+          color: '#00F5D4',
+          recipientName: recipientNumber,
+          recipientMoniNumber: recipientNumber,
+          senderName: user.displayName || 'Utilisateur',
+          senderMoniNumber: user.moniNumber,
+          message: message || undefined,
+          reference: `P2P-SEND-${Date.now()}`
+        }
+      );
+
+      success('Paiement effectué', `Paiement de ${amount}$ envoyé à ${recipientNumber}`);
+      setStep('success');
+      setTimeout(() => {
+        onP2PSuccess?.();
+        handleClose();
+      }, 2000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Erreur lors du paiement. Veuillez réessayer.');
+      setStep('send');
+      console.error('P2P direct send error:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const executePendingAction = async () => {
+    if (!pendingAction) return;
+
+    if (pendingAction.type === 'direct-send') {
+      await executeDirectSend();
+      return;
+    }
+
+    if (pendingAction.type === 'accept') {
+      await executeAcceptRequest(pendingAction.request);
+      return;
+    }
+
+    await executePayRequest(pendingAction.request);
+  };
+
+  const pendingAmount = pendingAction?.type === 'direct-send'
+    ? parseFloat(amount || '0')
+    : pendingAction?.request.amount;
 
   return (
     <div className="absolute inset-0 bg-black/50 flex items-end z-50 rounded-[40px]">
@@ -269,7 +390,10 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
 
               {requests.filter(r => r.status === 'pending').length > 0 && (
                 <button
-                  onClick={() => setStep('request')}
+                  onClick={() => {
+                    setMethod('send');
+                    setStep('request');
+                  }}
                   className="w-full p-4 bg-moni-accent/20 rounded-2xl border border-moni-accent/50 hover:bg-moni-accent/30 transition-all flex items-center gap-4"
                 >
                   <div className="w-12 h-12 bg-moni-accent/40 rounded-xl flex items-center justify-center text-moni-accent">
@@ -452,7 +576,7 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
                 Retour
               </button>
               <button
-                onClick={handleSendRequest}
+                onClick={handleDirectSend}
                 disabled={isProcessing}
                 className="flex-1 p-3 bg-moni-accent text-moni-bg rounded-xl font-semibold hover:bg-moni-accent/90 transition-all active:scale-95 disabled:opacity-50"
               >
@@ -676,6 +800,19 @@ const P2PModal: React.FC<P2PModalProps> = ({ isOpen, onClose, userBalance, onP2P
           </div>
         )}
       </div>
+
+      <PinConfirmModal
+        isOpen={showPinConfirm}
+        onClose={() => {
+          setShowPinConfirm(false);
+          setPendingAction(null);
+        }}
+        onConfirmed={executePendingAction}
+        title="Confirmer le paiement"
+        description="Cette opération débitera votre portefeuille Moni."
+        amountLabel={pendingAmount ? `$${pendingAmount.toFixed(2)}` : undefined}
+        confirmLabel="Payer"
+      />
     </div>
   );
 };

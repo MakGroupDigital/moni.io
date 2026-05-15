@@ -2,7 +2,9 @@
 import React, { useState } from 'react';
 import { useCurrency } from '../App';
 import { useAuth } from '../contexts/AuthContext';
-import { CURRENCY_SYMBOLS } from '../types';
+import { CURRENCY_SYMBOLS, Currency } from '../types';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import QRCodeModal from '../components/QRCodeModal';
 import {
   PersonalInfoModal,
@@ -13,6 +15,7 @@ import {
   HelpModal,
   TermsModal
 } from '../components/SettingsModals';
+import type { LegalDocumentId } from '../lib/legalContent';
 
 const Settings: React.FC = () => {
   const { currency, setCurrency } = useCurrency();
@@ -29,8 +32,26 @@ const Settings: React.FC = () => {
   const [showLanguage, setShowLanguage] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
+  const [selectedLegalDocument, setSelectedLegalDocument] = useState<LegalDocumentId>('terms');
 
   const currencies = ['USD', 'EUR', 'CDF', 'XOF', 'FCFA'] as const;
+
+  const handleCurrencyChange = async (curr: Currency) => {
+    setCurrency(curr);
+    localStorage.setItem('moni_currency', curr);
+    setShowCurrencyMenu(false);
+
+    if (!user?.uid) return;
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        currency: curr,
+        preferredCurrency: curr
+      });
+    } catch (error) {
+      console.error('Currency update error:', error);
+    }
+  };
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -42,6 +63,11 @@ const Settings: React.FC = () => {
     } finally {
       setIsLoggingOut(false);
     }
+  };
+
+  const openLegalDocument = (documentId: LegalDocumentId) => {
+    setSelectedLegalDocument(documentId);
+    setShowTerms(true);
   };
 
   return (
@@ -152,12 +178,56 @@ const Settings: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setShowTerms(true)}
+              onClick={() => openLegalDocument('about')}
               className="w-full flex justify-between items-center p-4 bg-moni-card rounded-2xl border border-white/5 hover:bg-white/5 transition-colors"
             >
               <div className="flex items-center gap-4 text-moni-white">
-                <i className="fas fa-file-alt text-moni-accent w-5 text-center"></i>
-                <span className="text-sm">Conditions Générales</span>
+                <i className="fas fa-circle-info text-moni-accent w-5 text-center"></i>
+                <span className="text-sm">À propos de Moni.io</span>
+              </div>
+              <i className="fas fa-chevron-right text-moni-gray text-xs"></i>
+            </button>
+
+            <button
+              onClick={() => openLegalDocument('terms')}
+              className="w-full flex justify-between items-center p-4 bg-moni-card rounded-2xl border border-white/5 hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-4 text-moni-white">
+                <i className="fas fa-file-contract text-moni-accent w-5 text-center"></i>
+                <span className="text-sm">Conditions générales</span>
+              </div>
+              <i className="fas fa-chevron-right text-moni-gray text-xs"></i>
+            </button>
+
+            <button
+              onClick={() => openLegalDocument('acceptable-use')}
+              className="w-full flex justify-between items-center p-4 bg-moni-card rounded-2xl border border-white/5 hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-4 text-moni-white">
+                <i className="fas fa-scale-balanced text-moni-accent w-5 text-center"></i>
+                <span className="text-sm">Politique d’utilisation</span>
+              </div>
+              <i className="fas fa-chevron-right text-moni-gray text-xs"></i>
+            </button>
+
+            <button
+              onClick={() => openLegalDocument('privacy')}
+              className="w-full flex justify-between items-center p-4 bg-moni-card rounded-2xl border border-white/5 hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-4 text-moni-white">
+                <i className="fas fa-user-shield text-moni-accent w-5 text-center"></i>
+                <span className="text-sm">Confidentialité</span>
+              </div>
+              <i className="fas fa-chevron-right text-moni-gray text-xs"></i>
+            </button>
+
+            <button
+              onClick={() => openLegalDocument('cookies')}
+              className="w-full flex justify-between items-center p-4 bg-moni-card rounded-2xl border border-white/5 hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-4 text-moni-white">
+                <i className="fas fa-cookie-bite text-moni-accent w-5 text-center"></i>
+                <span className="text-sm">Cookies & traceurs</span>
               </div>
               <i className="fas fa-chevron-right text-moni-gray text-xs"></i>
             </button>
@@ -186,10 +256,7 @@ const Settings: React.FC = () => {
                 {currencies.map((curr) => (
                   <button
                     key={curr}
-                    onClick={() => {
-                      setCurrency(curr);
-                      setShowCurrencyMenu(false);
-                    }}
+                    onClick={() => handleCurrencyChange(curr)}
                     className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors ${
                       currency === curr 
                         ? 'bg-moni-accent/20 text-moni-accent' 
@@ -224,7 +291,7 @@ const Settings: React.FC = () => {
       <BiometryModal isOpen={showBiometry} onClose={() => setShowBiometry(false)} />
       <LanguageModal isOpen={showLanguage} onClose={() => setShowLanguage(false)} />
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
-      <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
+      <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} initialDocumentId={selectedLegalDocument} />
     </div>
   );
 };

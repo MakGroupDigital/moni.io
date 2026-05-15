@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import jsQR from 'jsqr';
 
 interface QRScannerProps {
   onScan: (result: string) => void;
@@ -113,17 +114,10 @@ const QRScanner: React.FC<QRScannerProps> = ({ onScan, onClose }) => {
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
           const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
+          const code = jsQR(imageData.data, canvas.width, canvas.height);
 
-          let darkPixels = 0;
-          for (let i = 0; i < data.length; i += 4) {
-            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-            if (brightness < 128) darkPixels++;
-          }
-
-          if (darkPixels > data.length / 8) {
-            const mockQRData = `agent_${Math.random().toString(36).substring(2, 11)}`;
-            onScan(mockQRData);
+          if (code?.data) {
+            onScan(code.data);
             setIsScanning(false);
             return;
           }

@@ -6,6 +6,7 @@ import { performTransfer } from '../lib/transactionUtils';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useNotificationContext } from '../contexts/NotificationContext';
+import PinConfirmModal from './PinConfirmModal';
 
 interface SendModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
   const [isProcessing, setIsProcessing] = useState(false);
   const [recipient, setRecipient] = useState<MoniUser | BluetoothMoniUser | null>(null);
   const [showBluetoothSelector, setShowBluetoothSelector] = useState(false);
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
 
   if (!isOpen) return null;
 
@@ -52,6 +54,7 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
     setRecipient(null);
     setIsProcessing(false);
     setShowBluetoothSelector(false);
+    setShowPinConfirm(false);
     onClose();
   };
 
@@ -124,6 +127,13 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
       return;
     }
 
+    setShowPinConfirm(true);
+  };
+
+  const executeSendMoney = async () => {
+    if (!user?.uid || !recipient) return;
+
+    setShowPinConfirm(false);
     setIsProcessing(true);
     setStep('processing');
 
@@ -398,6 +408,16 @@ const SendModal: React.FC<SendModalProps> = ({ isOpen, onClose, userBalance, onS
           </div>
         )}
       </div>
+
+      <PinConfirmModal
+        isOpen={showPinConfirm}
+        onClose={() => setShowPinConfirm(false)}
+        onConfirmed={executeSendMoney}
+        title="Confirmer le transfert"
+        description={recipient ? `Envoi vers ${recipient.name}` : 'Confirmez ce transfert.'}
+        amountLabel={amount ? `$${parseFloat(amount || '0').toFixed(2)}` : undefined}
+        confirmLabel="Envoyer"
+      />
     </div>
   );
 };

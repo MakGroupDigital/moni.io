@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { renderBrandedQRCodeToCanvas } from '../lib/qrBranding';
 
 interface UserProfileProps {
   onComplete: () => void;
@@ -8,6 +9,27 @@ interface UserProfileProps {
 const UserProfile: React.FC<UserProfileProps> = ({ onComplete }) => {
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!user || !qrCanvasRef.current) return;
+
+    const qrData = JSON.stringify({
+      moniNumber: user.moniNumber,
+      displayName: user.displayName,
+      email: user.email,
+      photoURL: user.photoURL,
+      uid: user.uid
+    });
+
+    renderBrandedQRCodeToCanvas(qrCanvasRef.current, qrData, {
+      width: 260,
+      margin: 1,
+      darkColor: '#000000',
+    }).catch((error) => {
+      console.error('Error generating profile QR code:', error);
+    });
+  }, [user]);
 
   const handleCopyMoniNumber = () => {
     if (user?.moniNumber) {
@@ -39,10 +61,10 @@ END:VCARD`;
   };
 
   const handleDownloadQR = () => {
-    if (!user?.qrCode) return;
+    if (!user || !qrCanvasRef.current) return;
 
     const link = document.createElement('a');
-    link.href = user.qrCode;
+    link.href = qrCanvasRef.current.toDataURL('image/png');
     link.download = `${user.displayName}-qrcode.png`;
     link.click();
   };
@@ -103,9 +125,9 @@ END:VCARD`;
           {/* QR Code */}
           <div className="mb-6">
             <p className="text-moni-gray text-xs font-semibold mb-2">Votre Code QR</p>
-            {user?.qrCode ? (
+            {user ? (
               <div className="bg-moni-bg rounded-xl p-4 flex flex-col items-center border border-moni-accent/30">
-                <img src={user.qrCode} alt="QR Code" className="w-40 h-40 rounded-lg mb-3" />
+                <canvas ref={qrCanvasRef} className="w-40 h-40 rounded-lg mb-3" />
                 <button
                   onClick={handleDownloadQR}
                   className="w-full bg-moni-accent text-moni-bg px-4 py-2 rounded-xl text-xs font-semibold hover:bg-moni-accent/90 transition-all flex items-center justify-center gap-2"

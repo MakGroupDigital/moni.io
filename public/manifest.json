@@ -1,7 +1,8 @@
 {
   "name": "Moni.io - Portefeuille Numérique",
   "short_name": "Moni.io",
-  "description": "Portefeuille numérique sécurisé pour gérer votre argent",
+  "id": "/",
+  "description": "Portefeuille digital pour l'Afrique: dépôts mobile money, retraits PayPal, liaison PayPal, transferts, paiements QR, factures et cartes.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -26,19 +27,68 @@
       "purpose": "any"
     },
     {
-      "src": "/onelogo.png",
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "categories": ["finance"],
+  "shortcuts": [
+    {
+      "name": "Déposer de l'argent",
+      "short_name": "Dépôt",
+      "description": "Alimenter le portefeuille Moni avec les moyens disponibles.",
+      "url": "/?action=deposit",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    },
+    {
+      "name": "Retirer via PayPal",
+      "short_name": "Retrait PayPal",
+      "description": "Demander un retrait vers un compte PayPal lié à Moni.",
+      "url": "/?action=withdraw-paypal",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    },
+    {
+      "name": "Lier PayPal",
+      "short_name": "Lier PayPal",
+      "description": "Associer un compte PayPal au portefeuille Moni.",
+      "url": "/?action=link-paypal",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    },
+    {
+      "name": "Scanner un paiement",
+      "short_name": "Scanner",
+      "description": "Scanner un QR code marchand pour payer depuis Moni.",
+      "url": "/?action=scan",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    },
+    {
+      "name": "Payer une facture",
+      "short_name": "Factures",
+      "description": "Payer Canal+, SNEL, REGIDESO, internet et autres services.",
+      "url": "/?action=bills",
+      "icons": [{ "src": "/favicon-32x32.png", "sizes": "32x32" }]
+    }
+  ],
   "screenshots": [
     {
-      "src": "/onelogo.png",
-      "sizes": "540x720",
+      "src": "/og-image.png",
+      "sizes": "1200x630",
       "type": "image/png",
-      "form_factor": "narrow"
+      "form_factor": "wide"
     }
   ]
 }

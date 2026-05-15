@@ -2,6 +2,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 60
+    }
+  },
   "env": {
     "VITE_FIREBASE_API_KEY": "AIzaSyAxPnjjaZo3gxCdjuFjxltg3twS_AYSaIU",
     "VITE_FIREBASE_AUTH_DOMAIN": "moni-io.firebaseapp.com",

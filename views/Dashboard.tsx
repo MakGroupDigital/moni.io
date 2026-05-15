@@ -4,14 +4,18 @@ import { useCurrency } from '../App';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import NotificationCenter from '../components/NotificationCenter';
+import { useNotifications } from '../lib/useNotifications';
 
-const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => void; onShowPayPal: () => void; onShowSend: () => void; onShowP2P: () => void; onShowBills: () => void; onShowUSSD: () => void }> = ({ onShowDeposit, onShowWithdraw, onShowPayPal, onShowSend, onShowP2P, onShowBills, onShowUSSD }) => {
+const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => void; onShowPayPal: () => void; onShowSend: () => void; onShowReceive: () => void; onShowP2P: () => void; onShowBills: () => void }> = ({ onShowDeposit, onShowWithdraw, onShowPayPal, onShowSend, onShowReceive, onShowP2P, onShowBills }) => {
   const [showBalance, setShowBalance] = React.useState(true);
   const { currency } = useCurrency();
   const { user } = useAuth();
+  const { notifications, unreadCount } = useNotifications(user?.uid);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [monthlyStats, setMonthlyStats] = useState<MonthlyStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Récupérer les transactions de l'utilisateur
   useEffect(() => {
@@ -58,7 +62,8 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
           }),
           icon: data.icon,
           color: data.color,
-          type: isPositive ? 'positive' : 'negative'
+          type: isPositive ? 'positive' : 'negative',
+          status: data.status
         });
       });
 
@@ -156,14 +161,23 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
               <span className="text-moni-white font-semibold text-sm">{user?.displayName || 'Utilisateur'}</span>
             </div>
           </div>
-          <button className="relative text-moni-white text-xl">
+          <button
+            onClick={() => setShowNotifications(true)}
+            className="relative w-11 h-11 rounded-full bg-moni-card border border-white/10 text-moni-white text-xl flex items-center justify-center hover:border-moni-accent/50 hover:text-moni-accent transition-all active:scale-95"
+            type="button"
+            aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} non lues` : ''}`}
+          >
             <i className="far fa-bell"></i>
-            <div className="absolute top-0 right-0 w-2 h-2 bg-moni-accent rounded-full border border-moni-bg"></div>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-moni-accent text-moni-bg rounded-full border-2 border-moni-bg text-[10px] font-bold flex items-center justify-center">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
           </button>
         </header>
 
         {/* Balance Card - Moni.io Premium Card */}
-        <div className="relative mb-6 h-48 group">
+        <div className="relative mb-6 w-full max-w-[340px] aspect-[1.586/1] mx-auto group">
           {/* Card Background - Premium Design */}
           <div className="absolute inset-0 bg-gradient-to-br from-moni-accent via-moni-accent/80 to-moni-dark rounded-3xl shadow-2xl shadow-moni-accent/30 overflow-hidden">
             {/* Subtle animated gradient overlay */}
@@ -174,7 +188,7 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
             <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full blur-2xl -ml-12 -mb-12"></div>
 
             {/* Card Content */}
-            <div className="relative h-full flex flex-col justify-between p-6 text-white">
+            <div className="relative h-full flex flex-col justify-between p-5 text-white">
               {/* Top - Logo and Balance */}
               <div className="flex justify-between items-start">
                 <div className="flex-1">
@@ -187,12 +201,12 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
                       <i className={`fas fa-${showBalance ? 'eye' : 'eye-slash'}`}></i>
                     </button>
                   </div>
-                  <h2 className="font-montserrat text-lg font-bold tracking-tight">
+                  <h2 className="font-montserrat text-base font-bold tracking-tight">
                     {showBalance ? userBalance.toLocaleString() : '••••••'}
                   </h2>
                   <p className="text-white/60 text-xs mt-1">{currency}</p>
                 </div>
-                <img src="/onelogo.png" alt="Moni.io" className="h-28 w-auto" />
+                <img src="/onelogo.png" alt="Moni.io" className="h-20 w-auto" />
               </div>
 
               {/* Bottom - Minimal Info */}
@@ -201,7 +215,7 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
                   <p className="text-white/60 text-xs">{user?.displayName || 'Utilisateur'}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-montserrat font-bold text-sm text-white/80">{user?.moniNumber}</p>
+                  <p className="font-montserrat font-bold text-xs text-white/80">{user?.moniNumber}</p>
                 </div>
               </div>
             </div>
@@ -209,17 +223,19 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
         </div>
 
         {/* PayPal Integration */}
-        {paypalBalance > 0 && (
+        {(paypalBalance > 0 || user?.paypalLinked) && (
           <div className="paypal-gradient rounded-2xl p-5 flex justify-between items-center mb-6 shadow-lg shadow-blue-500/20">
             <div>
-              <h4 className="font-montserrat font-bold text-white text-sm mb-1">PayPal Disponible</h4>
-              <p className="text-white/80 text-[10px]">Solde détecté : <strong className="text-white">${paypalBalance.toFixed(2)}</strong></p>
+              <h4 className="font-montserrat font-bold text-white text-sm mb-1">PayPal</h4>
+              <p className="text-white/80 text-[10px]">
+                {user?.paypalLinked ? `Compte lié : ${user.paypalEmail || 'actif'}` : `Solde détecté : ${paypalBalance.toFixed(2)} USD`}
+              </p>
             </div>
             <button 
               onClick={onShowPayPal}
               className="bg-white text-[#0070BA] px-4 py-2 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-transform hover:bg-white/90"
             >
-              Récupérer
+              Gérer
             </button>
           </div>
         )}
@@ -241,18 +257,19 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
         </div>
 
         {/* Quick Actions Grid */}
-        <div className="grid grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-5 gap-3 mb-8">
           {[
             { icon: 'fas fa-paper-plane', label: 'Envoyer', color: '#00F5D4', action: onShowSend },
+            { icon: 'fas fa-link', label: 'Recevoir', color: '#06D6A0', action: onShowReceive },
             { icon: 'fas fa-users', label: 'P2P', color: '#FFD166', action: onShowP2P },
             { icon: 'fas fa-file-invoice-dollar', label: 'Factures', color: '#EF476F', action: onShowBills },
-            { icon: 'fas fa-mobile-alt', label: 'USSD', color: '#118AB2', action: onShowUSSD }
+            { icon: 'fab fa-paypal', label: 'PayPal', color: '#118AB2', action: onShowPayPal }
           ].map((item, idx) => (
             <div key={idx} className="flex flex-col items-center gap-2 group cursor-pointer" onClick={item.action}>
-              <div className="w-[55px] h-[55px] bg-moni-card rounded-2xl flex items-center justify-center text-xl transition-all group-hover:-translate-y-1 group-hover:bg-moni-accent group-hover:text-moni-bg shadow-lg shadow-black/20" style={{ color: item.color }}>
+              <div className="w-[50px] h-[50px] bg-moni-card rounded-2xl flex items-center justify-center text-lg transition-all group-hover:-translate-y-1 group-hover:bg-moni-accent group-hover:text-moni-bg shadow-lg shadow-black/20" style={{ color: item.color }}>
                 <i className={item.icon}></i>
               </div>
-              <span className="text-moni-gray text-[10px]">{item.label}</span>
+              <span className="text-moni-gray text-[9px]">{item.label}</span>
             </div>
           ))}
         </div>
@@ -302,12 +319,16 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
                     <i className={tx.icon}></i>
                   </div>
                   <div>
-                    <h4 className="text-moni-white text-sm font-medium">{tx.title}</h4>
+                    <h4 className="text-moni-white text-sm font-medium flex items-center gap-2">
+                      {tx.title}
+                      {tx.status === 'pending' && <span className="text-[9px] text-moni-accent bg-moni-accent/10 px-2 py-0.5 rounded-full">En attente</span>}
+                      {tx.status === 'failed' && <span className="text-[9px] text-red-300 bg-red-500/10 px-2 py-0.5 rounded-full">Échec</span>}
+                    </h4>
                     <p className="text-moni-gray text-[10px]">{tx.description}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <h4 className={`text-sm font-bold ${tx.type === 'positive' ? 'text-moni-success' : 'text-moni-white'}`}>
+                  <h4 className={`text-sm font-bold ${tx.status === 'pending' ? 'text-moni-gray' : tx.type === 'positive' ? 'text-moni-success' : 'text-moni-white'}`}>
                     {tx.type === 'positive' ? '+' : '-'} {tx.amount.toLocaleString()} {CURRENCY_SYMBOLS[currency]}
                   </h4>
                   <p className="text-moni-gray text-[10px]">{tx.date}</p>
@@ -317,6 +338,12 @@ const Dashboard: React.FC<{ onShowDeposit: () => void; onShowWithdraw: () => voi
           </div>
         )}
       </div>
+
+      <NotificationCenter
+        notifications={notifications}
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+      />
     </>
   );
 };

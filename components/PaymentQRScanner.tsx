@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
+import jsQR from 'jsqr';
 
 interface PaymentQRScannerProps {
   onScan: (result: string) => void;
   onClose: () => void;
+  onManualEntry?: () => void;
 }
 
-const PaymentQRScanner: React.FC<PaymentQRScannerProps> = ({ onScan, onClose }) => {
+const PaymentQRScanner: React.FC<PaymentQRScannerProps> = ({ onScan, onClose, onManualEntry }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string>('');
@@ -107,17 +109,10 @@ const PaymentQRScanner: React.FC<PaymentQRScannerProps> = ({ onScan, onClose }) 
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
           const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
+          const code = jsQR(imageData.data, canvas.width, canvas.height);
 
-          let darkPixels = 0;
-          for (let i = 0; i < data.length; i += 4) {
-            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-            if (brightness < 128) darkPixels++;
-          }
-
-          if (darkPixels > data.length / 8) {
-            const mockQRData = `merchant_${Math.random().toString(36).substring(2, 11)}`;
-            onScan(mockQRData);
+          if (code?.data) {
+            onScan(code.data);
             setIsScanning(false);
             return;
           }
@@ -156,6 +151,22 @@ const PaymentQRScanner: React.FC<PaymentQRScannerProps> = ({ onScan, onClose }) 
           <i className="fas fa-times text-lg"></i>
         </button>
       </div>
+
+      {onManualEntry && (
+        <div className="absolute top-4 left-4 z-10">
+          <button
+            onClick={() => {
+              closeScanner();
+              onManualEntry();
+            }}
+            className="h-10 px-3 bg-moni-card border border-white/10 rounded-full flex items-center gap-2 text-moni-white hover:bg-white/10 transition-all active:scale-95"
+            type="button"
+          >
+            <i className="fas fa-keyboard text-moni-accent"></i>
+            <span className="text-xs font-semibold">Code</span>
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 flex items-center justify-center w-full relative">
         <video

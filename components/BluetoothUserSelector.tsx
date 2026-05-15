@@ -24,7 +24,8 @@ const BluetoothUserSelector: React.FC<BluetoothUserSelectorProps> = ({ onUserSel
 
     try {
       // Vérifier si Bluetooth est disponible
-      if (!navigator.bluetooth) {
+      const bluetoothNavigator = navigator as Navigator & { bluetooth?: unknown };
+      if (!bluetoothNavigator.bluetooth) {
         setError('Bluetooth n\'est pas disponible sur cet appareil');
         setIsScanning(false);
         return;

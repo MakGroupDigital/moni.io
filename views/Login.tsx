@@ -119,7 +119,14 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         {/* Terms */}
         <p className="text-moni-gray text-xs text-center">
-          En continuant, vous acceptez nos <span className="text-moni-accent cursor-pointer hover:underline">conditions d'utilisation</span>
+          En continuant, vous acceptez nos{' '}
+          <a href="/legal/conditions-generales.html" target="_blank" rel="noreferrer" className="text-moni-accent cursor-pointer hover:underline">
+            conditions d'utilisation
+          </a>
+          {' '}et notre{' '}
+          <a href="/legal/confidentialite.html" target="_blank" rel="noreferrer" className="text-moni-accent cursor-pointer hover:underline">
+            politique de confidentialité
+          </a>
         </p>
       </div>
     </div>
