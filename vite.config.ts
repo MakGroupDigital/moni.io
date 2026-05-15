@@ -7,11 +7,11 @@ import react from '@vitejs/plugin-react';
 const require = createRequire(import.meta.url);
 
 const localApiRoutes: Record<string, string> = {
-  '/api/maxicash/deposit/initiate': '/api/maxicash/deposit/initiate.js',
-  '/api/maxicash/deposit/status': '/api/maxicash/deposit/status.js',
-  '/api/paypal/link/start': '/api/paypal/link/start.js',
-  '/api/paypal/link/complete': '/api/paypal/link/complete.js',
-  '/api/paypal/payout/create': '/api/paypal/payout/create.js',
+  '/api/maxicash/deposit/initiate': '/api/maxicash-deposit-initiate.js',
+  '/api/maxicash/deposit/status': '/api/maxicash-deposit-status.js',
+  '/api/paypal/link/start': '/api/paypal-link-start.js',
+  '/api/paypal/link/complete': '/api/paypal-link-complete.js',
+  '/api/paypal/payout/create': '/api/paypal-payout-create.js',
 };
 
 async function readRequestBody(req: IncomingMessage) {

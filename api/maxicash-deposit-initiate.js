@@ -1,14 +1,14 @@
 module.exports = async function handler(req, res) {
   try {
-    const run = require('./create.bundle.cjs');
+    const run = require('./maxicash/deposit/initiate.bundle.cjs');
     return await run(req, res);
   } catch (error) {
     res.statusCode = 500;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.end(JSON.stringify({
       success: false,
-      error: error && error.message ? error.message : 'Erreur serveur retrait PayPal.',
-      route: 'paypal/payout/create',
+      error: error && error.message ? error.message : 'Erreur serveur dépôt.',
+      route: 'maxicash-deposit-initiate',
     }));
   }
 };

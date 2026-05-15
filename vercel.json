@@ -18,6 +18,26 @@
   },
   "rewrites": [
     {
+      "source": "/api/maxicash/deposit/initiate",
+      "destination": "/api/maxicash-deposit-initiate"
+    },
+    {
+      "source": "/api/maxicash/deposit/status",
+      "destination": "/api/maxicash-deposit-status"
+    },
+    {
+      "source": "/api/paypal/link/start",
+      "destination": "/api/paypal-link-start"
+    },
+    {
+      "source": "/api/paypal/link/complete",
+      "destination": "/api/paypal-link-complete"
+    },
+    {
+      "source": "/api/paypal/payout/create",
+      "destination": "/api/paypal-payout-create"
+    },
+    {
       "source": "/((?!api/.*).*)",
       "destination": "/index.html"
     }
